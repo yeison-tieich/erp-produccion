@@ -1,0 +1,29 @@
+# Node
+node_modules/
+
+# Backend
+backend/node_modules/
+backend/prisma/dev.db
+backend/.env
+
+# Frontend
+frontend/node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Build
+dist/
+build/
+
+# Misc
+*.local

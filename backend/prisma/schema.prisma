@@ -1,0 +1,229 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // Changed to sqlite for immediate local testing without external DB setup. 
+  // For PostgreSQL: provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id            Int      @id @default(autoincrement())
+  nombre        String
+  email         String   @unique
+  password_hash String
+  rol           String   // 'Administrador', 'Supervisor', 'Operario'
+}
+
+model MateriaPrima {
+  id                  Int      @id @default(autoincrement())
+  sku_mp              String   @unique
+  nombre_mp           String
+  descripcion         String?
+  categoria_mp        String   // 'Lámina', 'Perfil', 'Placa', 'Varilla', 'Consumible'
+  unidad_medida_stock String   // 'Kg', 'Metros', 'Unidades', 'Láminas'
+  stock_actual        Decimal  @default(0)
+  stock_reservado     Decimal  @default(0)
+  punto_reorden       Decimal  @default(0)
+  
+  listaMateriales     ListaMateriales[]
+  movimientos         MovimientoInventarioMP[]
+}
+
+model Cliente {
+  id              Int      @id @default(autoincrement())
+  nombre          String   @unique
+  contacto        String?
+  direccion       String?
+  productos       Producto[]
+}
+
+model Producto {
+  id              Int      @id @default(autoincrement())
+  sku_producto    String   @unique
+  nombre_producto String
+  descripcion     String?
+  
+  cliente_id      Int?
+  cliente         Cliente?   @relation(fields: [cliente_id], references: [id])
+  
+  acabado         String?
+  imagen_url      String?
+  stock_actual    Int      @default(0)
+  ubicacion       String?
+  
+  // New technical fields
+  medidas_pieza       String? // MEDIDAS X PIEZA mm
+  piezas_lamina_4x8   String? // PIEZAS POR LAMINA DE 4 x 8
+  piezas_lamina_2x1   String? // PIEZAS POR LAMINA DE 2 x 1
+  empaque_de          String? // EMPAQUE DE
+  
+  listaMateriales ListaMateriales[]
+  rutas           RutaFabricacion[]
+  ordenes         OrdenTrabajo[]
+}
+
+model ListaMateriales {
+  id               Int          @id @default(autoincrement())
+  producto         Producto     @relation(fields: [producto_id], references: [id])
+  producto_id      Int
+  materiaPrima     MateriaPrima @relation(fields: [materia_prima_id], references: [id])
+  materia_prima_id Int
+  cantidad_requerida Decimal
+}
+
+model RutaFabricacion {
+  id                      Int      @id @default(autoincrement())
+  producto                Producto @relation(fields: [producto_id], references: [id])
+  producto_id             Int
+  no_operacion            Int
+  nombre_operacion        String
+  centro_trabajo          String
+  piezas_por_hora_estimado Int?
+  
+  tareas                  TareaProduccion[]
+}
+
+model Personal {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  cedula          String   @unique
+  cargo           String
+  kpi_puntualidad Float?
+  salario         Decimal?
+  calificacion    String?
+  eficiencia      Float?
+  productividad   Float?
+  
+  tareas          TareaProduccion[]
+  registrosTiempo RegistroTiempoLaboral[]
+  dotaciones      DotacionEPP[]
+}
+
+model RegistroTiempoLaboral {
+  id              Int      @id @default(autoincrement())
+  personal        Personal @relation(fields: [personal_id], references: [id])
+  personal_id     Int
+  tipo            String   // 'Hora Extra', 'Permiso', 'Incapacidad'
+  fecha           DateTime
+  horas           Float?    @default(0)
+  motivo          String?
+  aprobado        Boolean  @default(false)
+  fecha_creacion  DateTime @default(now())
+}
+
+model DotacionEPP {
+  id              Int      @id @default(autoincrement())
+  personal        Personal @relation(fields: [personal_id], references: [id])
+  personal_id     Int
+  item            String   // 'Guantes Vaqueta', 'Guantes Nitrilo', etc.
+  cantidad        Int
+  fecha_entrega   DateTime @default(now())
+  comentarios     String?
+}
+
+model OrdenTrabajo {
+  id                    Int       @id @default(autoincrement())
+  numero_ot             String    @unique
+  tipo_orden            String    @default("PRODUCCION_SERIE") // 'PRODUCCION_SERIE', 'PROYECTO_ESPECIAL'
+  
+  // Para órdenes de producción en serie
+  producto              Producto?  @relation(fields: [producto_id], references: [id])
+  producto_id           Int?
+  cantidad_pedido       Int       @default(0)
+  cantidad_fabricar     Int       @default(0)
+  
+  // Para proyectos especiales (troqueles, moldes, reparaciones, etc.)
+  descripcion_proyecto  String?   // Descripción del proyecto especial
+  
+  cliente               String?
+  orden_compra_cliente  String?
+  fecha_creacion        DateTime  @default(now())
+  fecha_entrega_req     DateTime?
+  prioridad             String    @default("ESTANDAR") // 'URGENTE', 'ALTA', 'ESTANDAR', 'BAJA'
+  estado_ot             String    @default("Pendiente") // 'Pendiente', 'En Progreso', 'Completada', 'Cancelada'
+  
+  costo_total_estimado  Decimal?  @default(0)
+  costo_total_real      Decimal?  @default(0)
+  
+  fecha_inicio_real     DateTime?
+  fecha_fin_real        DateTime?
+  duracion_total_real_min Int?     @default(0)
+
+  tareas                TareaProduccion[]
+  materialesProyecto    MaterialProyecto[]  // Para proyectos especiales
+}
+
+model TareaProduccion {
+  id                  Int             @id @default(autoincrement())
+  ordenTrabajo        OrdenTrabajo    @relation(fields: [orden_trabajo_id], references: [id])
+  orden_trabajo_id    Int
+  rutaFabricacion     RutaFabricacion @relation(fields: [ruta_fabricacion_id], references: [id])
+  ruta_fabricacion_id Int
+  
+  // Linked to Personal instead of Usuario for production control
+  personal            Personal?       @relation(fields: [personal_id], references: [id])
+  personal_id         Int?
+
+  // Linking to Maquina
+  maquina             Maquina?        @relation(fields: [maquina_id], references: [id])
+  maquina_id          Int?
+  
+  estado_tarea        String          @default("Pendiente") // 'Pendiente', 'En Progreso', 'Completada'
+  fecha_hora_inicio   DateTime?
+  fecha_hora_fin      DateTime?
+  tiempo_parada_min   Int             @default(0)
+  
+  // Calidad
+  cantidad_buena      Int?            @default(0)
+  cantidad_mala       Int?            @default(0)
+  motivo_rechazo      String?
+  
+  // Costos y Duración
+  costo_estimado      Decimal?        @default(0)
+  costo_real          Decimal?        @default(0)
+  duracion_real_min   Int?            @default(0)
+}
+
+model MovimientoInventarioMP {
+  id              Int          @id @default(autoincrement())
+  materiaPrima    MateriaPrima @relation(fields: [materia_prima_id], references: [id])
+  materia_prima_id Int
+  fecha_hora      DateTime     @default(now())
+  tipo_movimiento String       // 'Ingreso Compra', 'Consumo OT', 'Ajuste'
+  cantidad        Decimal
+  referencia_id   String?
+}
+
+model Maquina {
+  id                    Int      @id @default(autoincrement())
+  codigo                String   @unique
+  descripcion           String
+  adquirida_en          String?
+  estado                String   // 'Activo', 'Inactivo', 'Mantenimiento'
+  observaciones         String?
+  motor_hp              String?
+  consumo_mes           String?
+  capacidad_trabajo     String?
+  horas_maquina_mes     String?
+  foto_url              String?
+  
+  tareas                TareaProduccion[]
+}
+
+// Materiales y partes para proyectos especiales
+model MaterialProyecto {
+  id                  Int             @id @default(autoincrement())
+  ordenTrabajo        OrdenTrabajo    @relation(fields: [orden_trabajo_id], references: [id])
+  orden_trabajo_id    Int
+  cantidad            Decimal
+  unidad              String          // 'UND', 'Kg', 'Metros', etc.
+  descripcion         String          // Descripción completa del material
+  especificaciones    String?         // Especificaciones técnicas
+  ancho_tira          String?         // Para láminas
+  observaciones       String?
+}
