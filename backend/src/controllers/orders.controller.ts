@@ -51,34 +51,38 @@ export const createOrder = async (req: Request, res: Response) => {
 
                 if (!producto) throw new Error("Producto no encontrado");
 
-                // Crear tareas desde la ruta del producto
-                if (producto.rutas.length > 0) {
-                    await tx.tareaProduccion.createMany({
-                        data: producto.rutas.map(ruta => ({
-                            orden_trabajo_id: newOrder.id,
-                            ruta_fabricacion_id: ruta.id,
-                            estado_tarea: 'Pendiente'
-                        }))
-                    });
-                } else {
-                    // If product has no defined routes, create a placeholder route and a single task so it appears in task lists
-                    const placeholderRuta = await tx.rutaFabricacion.create({
-                        data: {
-                            producto_id: producto.id,
-                            no_operacion: 10,
-                            nombre_operacion: 'Operación por definir',
-                            centro_trabajo: 'TBD'
-                        }
-                    });
+                    // Crear tareas desde la ruta del producto
+                    if (producto.rutas.length > 0) {
+                        await tx.tareaProduccion.createMany({
+                            data: producto.rutas.map(ruta => ({
+                                orden_trabajo_id: newOrder.id,
+                                ruta_fabricacion_id: ruta.id,
+                                estado_tarea: 'Pendiente'
+                            }))
+                        });
+                    } else {
+                        // If product has no defined routes, create RutaFabricacion rows from OperacionCatalog and create tasks
+                        const operaciones = await tx.operacionCatalog.findMany({ orderBy: { orden: 'asc' } });
+                        for (let i = 0; i < operaciones.length; i++) {
+                            const op = operaciones[i];
+                            const ruta = await tx.rutaFabricacion.create({
+                                data: {
+                                    producto_id: producto.id,
+                                    no_operacion: (i + 1) * 10,
+                                    nombre_operacion: op.nombre_operacion,
+                                    centro_trabajo: op.centro_trabajo || 'General'
+                                }
+                            });
 
-                    await tx.tareaProduccion.create({
-                        data: {
-                            orden_trabajo_id: newOrder.id,
-                            ruta_fabricacion_id: placeholderRuta.id,
-                            estado_tarea: 'Pendiente'
+                            await tx.tareaProduccion.create({
+                                data: {
+                                    orden_trabajo_id: newOrder.id,
+                                    ruta_fabricacion_id: ruta.id,
+                                    estado_tarea: 'Pendiente'
+                                }
+                            });
                         }
-                    });
-                }
+                    }
 
                 // Reservar materiales
                 for (const item of producto.listaMateriales) {
@@ -104,6 +108,36 @@ export const createOrder = async (req: Request, res: Response) => {
                             ancho_tira: m.ancho_tira || null,
                             observaciones: m.observaciones || null
                         }))
+                    });
+                }
+                // Create task list for project orders from OperacionCatalog.
+                // Since project orders don't have a Producto, create a temporary Producto to attach rutas to.
+                const tempProduct = await tx.producto.create({
+                    data: {
+                        sku_producto: `PROJ-${numero_ot}`,
+                        nombre_producto: descripcion_proyecto || `Proyecto ${numero_ot}`,
+                        descripcion: descripcion_proyecto || undefined
+                    }
+                });
+
+                const operaciones = await tx.operacionCatalog.findMany({ orderBy: { orden: 'asc' } });
+                for (let i = 0; i < operaciones.length; i++) {
+                    const op = operaciones[i];
+                    const ruta = await tx.rutaFabricacion.create({
+                        data: {
+                            producto_id: tempProduct.id,
+                            no_operacion: (i + 1) * 10,
+                            nombre_operacion: op.nombre_operacion,
+                            centro_trabajo: op.centro_trabajo || 'General'
+                        }
+                    });
+
+                    await tx.tareaProduccion.create({
+                        data: {
+                            orden_trabajo_id: newOrder.id,
+                            ruta_fabricacion_id: ruta.id,
+                            estado_tarea: 'Pendiente'
+                        }
                     });
                 }
             }
@@ -249,3 +283,44 @@ export const deleteOrder = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error deleting order' });
     }
 };
+
+export const addOperationToOrder = async (req: Request, res: Response) => {
+    const { id } = req.params; // order id
+    const { operacionId } = req.body;
+    try {
+        const order = await prisma.ordenTrabajo.findUnique({ where: { id: Number(id) } });
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+
+        // Determine product to attach ruta to. For project orders we created a temp product with sku PROJ-<numero_ot>
+        let productoId = order.producto_id || null;
+        if (!productoId) {
+            const tempSku = `PROJ-${order.numero_ot}`;
+            const temp = await prisma.producto.findFirst({ where: { sku_producto: tempSku } });
+            if (temp) productoId = temp.id;
+        }
+
+        if (!productoId) return res.status(400).json({ error: 'No product context found to add operation' });
+
+        const oper = await prisma.operacionCatalog.findUnique({ where: { id: Number(operacionId) } });
+        if (!oper) return res.status(404).json({ error: 'Operation not found' });
+
+        // create rutaFabricacion and tarea
+        const ruta = await prisma.rutaFabricacion.create({ data: {
+            producto_id: productoId,
+            no_operacion: 10,
+            nombre_operacion: oper.nombre_operacion,
+            centro_trabajo: oper.centro_trabajo || 'General'
+        }});
+
+        const tarea = await prisma.tareaProduccion.create({ data: {
+            orden_trabajo_id: order.id,
+            ruta_fabricacion_id: ruta.id,
+            estado_tarea: 'Pendiente'
+        }});
+
+        res.json({ tarea });
+    } catch (error) {
+        console.error('Error adding operation to order', error);
+        res.status(500).json({ error: 'Error adding operation' });
+    }
+}

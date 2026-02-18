@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon --exec ts-node --transpile-only src/server.ts",
-    "seed:all": "npx ts-node prisma/seed.ts && npx ts-node prisma/seed-personal.ts && npx ts-node prisma/seed-machines.ts && node prisma/seed.js"
+    "seed:all": "npx ts-node prisma/seed.ts && npx ts-node prisma/seed-personal.ts && npx ts-node prisma/seed-machines.ts && npx ts-node prisma/seed-operations.ts && node prisma/seed.js"
   },
   "keywords": [],
   "author": "",

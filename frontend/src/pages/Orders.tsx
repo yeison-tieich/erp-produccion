@@ -1,8 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { generateOrderPDF } from '../utils/pdfGenerator';
 import {
     Plus, FileText, Calendar, CheckCircle, Clock,
     AlertTriangle, Edit2, Copy, Trash2, Eye,
@@ -42,9 +41,11 @@ export const Orders = () => {
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
     const [personalList, setPersonalList] = useState<any[]>([]);
     const [machinesList, setMachinesList] = useState<any[]>([]);
+    const [operationsList, setOperationsList] = useState<any[]>([]);
 
     // Form States
     const [formData, setFormData] = useState({
+        tipo_orden: 'PRODUCCION_SERIE',
         producto_id: '',
         cantidad_fabricar: '',
         cliente: '',
@@ -52,40 +53,10 @@ export const Orders = () => {
         estado_ot: ''
     });
 
+    const [formMaterials, setFormMaterials] = useState<any[]>([]);
+
     const generatePDF = (order: any) => {
-        const doc = new jsPDF();
-
-        // Header
-        doc.setFontSize(22);
-        doc.text("REPORTE TÉCNICO DE PRODUCCIÓN", 105, 20, { align: "center" });
-        doc.setFontSize(12);
-        doc.text(`Orden: ${order.numero_ot}`, 20, 35);
-        doc.text(`Producto: ${order.producto.nombre_producto}`, 20, 42);
-        doc.text(`Cliente: ${order.cliente || order.producto.cliente?.nombre || 'N/A'}`, 20, 49);
-        doc.text(`Fecha Entrega: ${order.fecha_entrega_req ? new Date(order.fecha_entrega_req).toLocaleDateString() : 'Pendiente'}`, 20, 56);
-
-        // Table of Tasks
-        const tableData = order.tareas.map((t: any) => [
-            t.rutaFabricacion.no_operacion,
-            t.rutaFabricacion.nombre_operacion,
-            t.personal?.nombre || 'No asignado',
-            t.maquina?.codigo || 'No asignada',
-            t.estado_tarea,
-            t.cantidad_buena || 0,
-            t.cantidad_mala || 0,
-            t.fecha_hora_inicio ? new Date(t.fecha_hora_inicio).toLocaleTimeString() : '--',
-            t.fecha_hora_fin ? new Date(t.fecha_hora_fin).toLocaleTimeString() : '--'
-        ]);
-
-        autoTable(doc, {
-            startY: 65,
-            head: [['Op', 'Actividad', 'Operario', 'Máquina', 'Estado', 'Ok', 'Scrap', 'I', 'F']],
-            body: tableData,
-            theme: 'grid',
-            headStyles: { fillColor: [15, 23, 42] }
-        });
-
-        doc.save(`${order.numero_ot}_Reporte.pdf`);
+        generateOrderPDF(order);
     };
 
     const fetchPersonalAndMachines = async () => {
@@ -162,6 +133,23 @@ export const Orders = () => {
         }
     };
 
+    const handleAddOperationSelection = async (value: string) => {
+        if (!selectedOrder) return;
+        try {
+            if (value.startsWith('ruta:')) {
+                const id = Number(value.replace('ruta:', ''));
+                await axios.post(`http://localhost:3000/api/tasks`, { orden_trabajo_id: selectedOrder.id, ruta_fabricacion_id: id });
+            } else if (value.startsWith('op:')) {
+                const operId = Number(value.replace('op:', ''));
+                await axios.post(`http://localhost:3000/api/orders/${selectedOrder.id}/operations`, { operacionId: operId });
+            }
+            const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+            setSelectedOrder(res.data);
+        } catch (error) {
+            alert('Error al añadir operación');
+        }
+    }
+
     const handleAssign = async (taskId: number, personal_id: any, maquina_id: any) => {
         try {
             await axios.put(`http://localhost:3000/api/tasks/${taskId}/assign`, {
@@ -203,12 +191,17 @@ export const Orders = () => {
     useEffect(() => {
         fetchOrders();
         fetchProducts();
+        axios.get('http://localhost:3000/api/operations')
+            .then(r => setOperationsList(r.data))
+            .catch(() => setOperationsList([]));
     }, []);
 
     const handleCreateOrder = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.post('http://localhost:3000/api/orders', formData);
+            const payload: any = { ...formData };
+            if (formData.tipo_orden === 'PROYECTO_ESPECIAL') payload.materiales_proyecto = formMaterials;
+            await axios.post('http://localhost:3000/api/orders', payload);
             setShowCreateModal(false);
             fetchOrders();
         } catch (err) {
@@ -416,20 +409,33 @@ export const Orders = () => {
                         </div>
                         <form onSubmit={showEditModal ? handleUpdateOrder : handleCreateOrder} className="space-y-6">
                             {!showEditModal && (
-                                <div>
-                                    <label className="block text-xs font-black uppercase text-gray-400 tracking-widest mb-2">Producto a Fabricar</label>
-                                    <select
-                                        className="w-full px-5 py-4 rounded-2xl border-2 border-gray-50 bg-gray-50 focus:bg-white focus:border-brand-500 outline-none font-bold transition-all"
-                                        value={formData.producto_id}
-                                        onChange={e => setFormData({ ...formData, producto_id: e.target.value })}
-                                        required
-                                    >
-                                        <option value="">Selecciona un producto...</option>
-                                        {products.map(p => (
-                                            <option key={p.id} value={p.id}>{p.nombre_producto} (SKU: {p.sku_producto})</option>
-                                        ))}
-                                    </select>
-                                </div>
+                                <>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase text-gray-400 tracking-widest mb-2">Tipo de Orden</label>
+                                        <select
+                                            className="w-full px-5 py-4 rounded-2xl border-2 border-gray-50 bg-gray-50 focus:bg-white focus:border-brand-500 outline-none font-bold transition-all"
+                                            value={formData.tipo_orden}
+                                            onChange={e => setFormData({ ...formData, tipo_orden: e.target.value })}
+                                        >
+                                            <option value="PRODUCCION_SERIE">PRODUCCIÓN SERIE</option>
+                                            <option value="PROYECTO_ESPECIAL">PROYECTO ESPECIAL</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase text-gray-400 tracking-widest mb-2">Producto a Fabricar</label>
+                                        <select
+                                            className="w-full px-5 py-4 rounded-2xl border-2 border-gray-50 bg-gray-50 focus:bg-white focus:border-brand-500 outline-none font-bold transition-all"
+                                            value={formData.producto_id}
+                                            onChange={e => setFormData({ ...formData, producto_id: e.target.value })}
+                                            required={formData.tipo_orden !== 'PROYECTO_ESPECIAL'}
+                                        >
+                                            <option value="">Selecciona un producto...</option>
+                                            {products.map(p => (
+                                                <option key={p.id} value={p.id}>{p.nombre_producto} (SKU: {p.sku_producto})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </>
                             )}
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
@@ -461,6 +467,22 @@ export const Orders = () => {
                                     placeholder="Nombre del cliente o proyecto..."
                                 />
                             </div>
+                            {formData.tipo_orden === 'PROYECTO_ESPECIAL' && (
+                                <div className="bg-gray-50 p-4 rounded-xl border">
+                                    <h4 className="font-black mb-2">Materiales del Proyecto</h4>
+                                    {formMaterials.map((m, idx) => (
+                                        <div key={idx} className="grid grid-cols-5 gap-2 items-center mb-2">
+                                            <input type="number" className="p-2 rounded border" value={m.cantidad} onChange={e => { const v = [...formMaterials]; v[idx].cantidad = e.target.value; setFormMaterials(v); }} />
+                                            <input className="p-2 rounded border" value={m.unidad} onChange={e => { const v = [...formMaterials]; v[idx].unidad = e.target.value; setFormMaterials(v); }} />
+                                            <input className="col-span-3 p-2 rounded border" value={m.descripcion} onChange={e => { const v = [...formMaterials]; v[idx].descripcion = e.target.value; setFormMaterials(v); }} />
+                                        </div>
+                                    ))}
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setFormMaterials([...formMaterials, { cantidad: 1, unidad: 'UND', descripcion: '' }])} className="px-4 py-2 bg-brand-600 text-white rounded">Agregar Material</button>
+                                        <button type="button" onClick={() => setFormMaterials([])} className="px-4 py-2 bg-gray-200 rounded">Limpiar</button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex gap-4 pt-4">
                                 <button type="submit" className="flex-1 bg-brand-600 text-white py-5 rounded-[1.5rem] font-black text-xl shadow-xl shadow-brand-100 hover:bg-brand-700 transition transform hover:scale-[1.02] active:scale-95">
                                     {showEditModal ? 'GUARDAR CAMBIOS' : 'LANZAR PRODUCCIÓN'}
@@ -667,13 +689,17 @@ export const Orders = () => {
                                         >
                                             <option value="">-- SELECCIONAR --</option>
                                             {selectedOrder.producto?.rutas?.map((r: any) => (
-                                                <option key={r.id} value={r.id}>#{r.no_operacion} - {r.nombre_operacion}</option>
+                                                <option key={`ruta-${r.id}`} value={`ruta:${r.id}`}>#{r.no_operacion} - {r.nombre_operacion}</option>
+                                            ))}
+                                            {operationsList.length > 0 && <option value="" disabled>-- OPERACIONES CATALOGO --</option>}
+                                            {operationsList.map((op: any) => (
+                                                <option key={`op-${op.id}`} value={`op:${op.id}`}>{op.nombre_operacion}</option>
                                             ))}
                                         </select>
                                         <button
                                             onClick={() => {
                                                 const select = document.getElementById('add-op-select') as HTMLSelectElement;
-                                                if (select.value) handleAddTask(Number(select.value));
+                                                if (select.value) handleAddOperationSelection(select.value);
                                             }}
                                             className="bg-slate-900 text-white px-6 py-3 rounded-xl font-black text-xs hover:bg-brand-600 transition shadow-lg shadow-slate-200"
                                         >

@@ -227,3 +227,11 @@ model MaterialProyecto {
   ancho_tira          String?         // Para láminas
   observaciones       String?
 }
+
+// Catalog of reusable operations for special projects and fallback when a product has no rutas
+model OperacionCatalog {
+  id              Int     @id @default(autoincrement())
+  nombre_operacion String
+  centro_trabajo   String?
+  orden            Int     @default(0)
+}
