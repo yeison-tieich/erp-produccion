@@ -1,4 +1,7 @@
+import { create } from 'zustand';
+import axios from 'axios';
 import { API_URL } from '../api';
+import { ProyectoEspecial } from '../types';
 
 interface SpecialProjectsState {
   projects: ProyectoEspecial[];

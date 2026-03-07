@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../api';
 import { Package, Plus, Search, AlertCircle, ArrowUpCircle, Edit3, X, Eye, History } from 'lucide-react';
@@ -497,8 +498,8 @@ export const Inventory = () => {
                                                 <tr key={mov.id} className="hover:bg-gray-50">
                                                     <td className="px-3 py-2">
                                                         <span className={`px-2 py-1 rounded text-xs font-medium ${mov.tipo_movimiento === 'Ingreso Compra' ? 'bg-green-100 text-green-700' :
-                                                                mov.tipo_movimiento === 'Consumo OT' ? 'bg-red-100 text-red-700' :
-                                                                    'bg-gray-100 text-gray-700'
+                                                            mov.tipo_movimiento === 'Consumo OT' ? 'bg-red-100 text-red-700' :
+                                                                'bg-gray-100 text-gray-700'
                                                             }`}>
                                                             {mov.tipo_movimiento}
                                                         </span>
