@@ -10,6 +10,7 @@ import {
     Activity, Factory, ClipboardList, ArrowUp, ArrowDown
 } from 'lucide-react';
 import clsx from 'clsx';
+import { API_URL } from '../api';
 
 interface Order {
     id: number;
@@ -66,8 +67,8 @@ export const Orders = () => {
     const fetchPersonalAndMachines = async () => {
         try {
             const [per, mac] = await Promise.all([
-                axios.get('http://localhost:3000/api/personal'),
-                axios.get('http://localhost:3000/api/machines')
+                axios.get(`${API_URL}/personal`),
+                axios.get(`${API_URL}/machines`)
             ]);
             setPersonalList(per.data);
             setMachinesList(mac.data);
@@ -78,9 +79,9 @@ export const Orders = () => {
 
     const handleStartTask = async (taskId: number) => {
         try {
-            await axios.post(`http://localhost:3000/api/tasks/${taskId}/start`);
+            await axios.post(`${API_URL}/tasks/${taskId}/start`);
             if (selectedOrder) {
-                const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+                const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
                 setSelectedOrder(res.data);
                 fetchOrders(); // Update main list too as status might change
             }
@@ -95,13 +96,13 @@ export const Orders = () => {
         if (buena === null || mala === null) return;
 
         try {
-            await axios.post(`http://localhost:3000/api/tasks/${taskId}/finish`, {
+            await axios.post(`${API_URL}/tasks/${taskId}/finish`, {
                 cantidad_buena: Number(buena),
                 cantidad_mala: Number(mala),
                 tiempo_parada_min: 0
             });
             if (selectedOrder) {
-                const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+                const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
                 setSelectedOrder(res.data);
                 fetchOrders();
             }
@@ -113,9 +114,9 @@ export const Orders = () => {
     const handleDeleteTask = async (taskId: number) => {
         if (!confirm('¿Seguro que deseas eliminar esta operación de la orden?')) return;
         try {
-            await axios.delete(`http://localhost:3000/api/tasks/${taskId}`);
+            await axios.delete(`${API_URL}/tasks/${taskId}`);
             if (selectedOrder) {
-                const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+                const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
                 setSelectedOrder(res.data);
             }
         } catch (error: any) {
@@ -127,11 +128,11 @@ export const Orders = () => {
     const handleAddTask = async (rutaId: number) => {
         if (!selectedOrder) return;
         try {
-            await axios.post(`http://localhost:3000/api/tasks`, {
+            await axios.post(`${API_URL}/tasks`, {
                 orden_trabajo_id: selectedOrder.id,
                 ruta_fabricacion_id: rutaId
             });
-            const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+            const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
             setSelectedOrder(res.data);
         } catch (error) {
             alert('Error al añadir tarea');
@@ -143,12 +144,12 @@ export const Orders = () => {
         try {
             if (value.startsWith('ruta:')) {
                 const id = Number(value.replace('ruta:', ''));
-                await axios.post(`http://localhost:3000/api/tasks`, { orden_trabajo_id: selectedOrder.id, ruta_fabricacion_id: id });
+                await axios.post(`${API_URL}/tasks`, { orden_trabajo_id: selectedOrder.id, ruta_fabricacion_id: id });
             } else if (value.startsWith('op:')) {
                 const operId = Number(value.replace('op:', ''));
-                await axios.post(`http://localhost:3000/api/orders/${selectedOrder.id}/operations`, { operacionId: operId });
+                await axios.post(`${API_URL}/orders/${selectedOrder.id}/operations`, { operacionId: operId });
             }
-            const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+            const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
             setSelectedOrder(res.data);
         } catch (error) {
             alert('Error al añadir operación');
@@ -157,13 +158,13 @@ export const Orders = () => {
 
     const handleAssign = async (taskId: number, personal_id: any, maquina_id: any) => {
         try {
-            await axios.put(`http://localhost:3000/api/tasks/${taskId}/assign`, {
+            await axios.put(`${API_URL}/tasks/${taskId}/assign`, {
                 personal_id: personal_id === "" ? null : personal_id,
                 maquina_id: maquina_id === "" ? null : maquina_id
             });
             // Refresh detail view
             if (selectedOrder) {
-                const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+                const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
                 setSelectedOrder(res.data);
             }
         } catch (error) {
@@ -174,12 +175,12 @@ export const Orders = () => {
     const handleReorderTasks = async (taskIds: number[]) => {
         if (!selectedOrder) return;
         try {
-            await axios.post('http://localhost:3000/api/tasks/order/reorder-tasks', {
+            await axios.post(`${API_URL}/tasks/order/reorder-tasks`, {
                 orden_trabajo_id: selectedOrder.id,
                 taskIds: taskIds
             });
             // Refresh detail view
-            const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+            const res = await axios.get(`${API_URL}/orders/${selectedOrder.id}/details`);
             setSelectedOrder(res.data);
         } catch (error: any) {
             const errorMsg = error.response?.data?.error || error.message || 'Error reordenando tareas';
@@ -193,11 +194,11 @@ export const Orders = () => {
         const task = newTasks[index];
         const swapIndex = direction === 'up' ? index - 1 : index + 1;
         if (swapIndex < 0 || swapIndex >= newTasks.length) return;
-        
+
         const swapTask = newTasks[swapIndex];
         newTasks[index] = swapTask;
         newTasks[swapIndex] = task;
-        
+
         const newTaskIds = newTasks.map(t => t.id);
         handleReorderTasks(newTaskIds);
     };
@@ -205,7 +206,7 @@ export const Orders = () => {
     const fetchOrders = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3000/api/orders');
+            const res = await axios.get(`${API_URL}/orders`);
             setOrders(Array.isArray(res.data) ? res.data : []);
         } catch (err) {
             console.error('Error fetching orders:', err);
@@ -217,7 +218,7 @@ export const Orders = () => {
 
     const fetchProducts = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/products');
+            const res = await axios.get(`${API_URL}/products`);
             setProducts(res.data);
         } catch (err) {
             console.error('Error fetching products:', err);
@@ -227,7 +228,7 @@ export const Orders = () => {
     useEffect(() => {
         fetchOrders();
         fetchProducts();
-        axios.get('http://localhost:3000/api/operations')
+        axios.get(`${API_URL}/operations`)
             .then(r => setOperationsList(r.data))
             .catch(() => setOperationsList([]));
     }, []);
@@ -237,7 +238,7 @@ export const Orders = () => {
         try {
             const payload: any = { ...formData };
             if (formData.tipo_orden === 'PROYECTO_ESPECIAL') payload.materiales_proyecto = formMaterials;
-            await axios.post('http://localhost:3000/api/orders', payload);
+            await axios.post(`${API_URL}/orders`, payload);
             setShowCreateModal(false);
             fetchOrders();
         } catch (err) {
@@ -247,7 +248,7 @@ export const Orders = () => {
 
     const handleDuplicate = async (id: number) => {
         try {
-            await axios.post(`http://localhost:3000/api/orders/${id}/duplicate`);
+            await axios.post(`${API_URL}/orders/${id}/duplicate`);
             fetchOrders();
         } catch (err) {
             alert('Error al duplicar orden');
@@ -256,7 +257,7 @@ export const Orders = () => {
 
     const handleStatusUpdate = async (id: number, status: string) => {
         try {
-            await axios.patch(`http://localhost:3000/api/orders/${id}/status`, { estado_ot: status });
+            await axios.patch(`${API_URL}/orders/${id}/status`, { estado_ot: status });
             setShowStatusModal(false);
             fetchOrders();
         } catch (err) {
@@ -278,7 +279,7 @@ export const Orders = () => {
     const handleDeleteOrder = async () => {
         if (!orderToDelete) return;
         try {
-            await axios.delete(`http://localhost:3000/api/orders/${orderToDelete.id}`);
+            await axios.delete(`${API_URL}/orders/${orderToDelete.id}`);
             setShowDeleteConfirmModal(false);
             setOrderToDelete(null);
             setDeleteConfirmStep(0);
@@ -293,7 +294,7 @@ export const Orders = () => {
         e.preventDefault();
         if (!selectedOrder) return;
         try {
-            await axios.put(`http://localhost:3000/api/orders/${selectedOrder.id}`, formData);
+            await axios.put(`${API_URL}/orders/${selectedOrder.id}`, formData);
             setShowEditModal(false);
             fetchOrders();
         } catch (err) {
@@ -317,7 +318,7 @@ export const Orders = () => {
     const openDetailModal = async (order: Order) => {
         console.log('Opening details for order:', order.id);
         try {
-            const res = await axios.get(`http://localhost:3000/api/orders/${order.id}/details`);
+            const res = await axios.get(`${API_URL}/orders/${order.id}/details`);
             console.log('Order details fetched:', res.data);
             setSelectedOrder(res.data);
             fetchPersonalAndMachines();

@@ -8,6 +8,7 @@ import {
     X, Check, AlertCircle, Package
 } from 'lucide-react';
 import clsx from 'clsx';
+import { API_URL } from '../api';
 
 interface Product {
     id: number;
@@ -64,14 +65,14 @@ export const Products = () => {
     // Edit Form States
     const [editData, setEditData] = useState<any>({ ...initialNewProductState });
     const [newProductData, setNewProductData] = useState<any>({ ...initialNewProductState });
-    
+
     const [clients, setClients] = useState<any[]>([]);
 
     const fetchProducts = async () => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:3000/api/products', {
+            const res = await axios.get(`${API_URL}/products`, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
             setProducts(res.data);
@@ -90,7 +91,7 @@ export const Products = () => {
     const fetchClients = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:3000/api/clients', {
+            const res = await axios.get(`${API_URL}/clients`, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
             setClients(res.data);
@@ -105,7 +106,7 @@ export const Products = () => {
         e.preventDefault();
         if (!selectedProduct) return;
         try {
-            await axios.post(`http://localhost:3000/api/products/${selectedProduct.id}/stock`, {
+            await axios.post(`${API_URL}/products/${selectedProduct.id}/stock`, {
                 cantidad: Number(stockQty),
                 tipo: stockType
             });
@@ -122,7 +123,7 @@ export const Products = () => {
         if (!selectedProduct) return;
         try {
             const token = localStorage.getItem('token');
-            await axios.post('http://localhost:3000/api/orders', {
+            await axios.post(`${API_URL}/orders`, {
                 tipo_orden: 'PRODUCCION_SERIE',
                 producto_id: selectedProduct.id,
                 cantidad_fabricar: Number(otQty),
@@ -149,14 +150,14 @@ export const Products = () => {
             if ((editData as any).imageFile) {
                 const form = new FormData();
                 form.append('image', (editData as any).imageFile);
-                await axios.post(`http://localhost:3000/api/products/${selectedProduct.id}/image`, form, {
+                await axios.post(`${API_URL}/products/${selectedProduct.id}/image`, form, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
                 // Remove from payload
                 delete (editData as any).imageFile;
             }
 
-            await axios.put(`http://localhost:3000/api/products/${selectedProduct.id}`, editData);
+            await axios.put(`${API_URL}/products/${selectedProduct.id}`, editData);
             setShowEditModal(false);
             fetchProducts();
             alert('Producto actualizado con éxito');
@@ -169,7 +170,7 @@ export const Products = () => {
         e.preventDefault();
         try {
             const token = localStorage.getItem('token');
-            await axios.post('http://localhost:3000/api/products', newProductData, {
+            await axios.post(`${API_URL}/products`, newProductData, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
             setShowCreateModal(false);
@@ -658,7 +659,7 @@ export const Products = () => {
                     </div>
                 </div>
             )}
-            
+
             {showEditModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2.5rem] shadow-xl max-w-2xl w-full p-10 max-h-[90vh] overflow-y-auto">

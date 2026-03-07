@@ -6,8 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // Changed to sqlite for immediate local testing without external DB setup. 
-  // For PostgreSQL: provider = "postgresql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

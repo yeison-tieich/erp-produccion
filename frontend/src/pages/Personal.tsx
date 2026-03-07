@@ -8,6 +8,7 @@ import {
     ShieldCheck, Filter, FileText, ChevronRight
 } from 'lucide-react';
 import clsx from 'clsx';
+import { API_URL } from '../api';
 
 interface Personal {
     id: number;
@@ -67,7 +68,7 @@ export const PersonalPage = () => {
     const fetchPersonal = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3000/api/personal');
+            const res = await axios.get(`${API_URL}/personal`);
             setPersonal(res.data);
         } catch (error) {
             console.error(error);
@@ -78,7 +79,7 @@ export const PersonalPage = () => {
 
     const fetchDetails = async (id: number) => {
         try {
-            const res = await axios.get(`http://localhost:3000/api/personal/${id}`);
+            const res = await axios.get(`${API_URL}/personal/${id}`);
             setDetailedPerson(res.data);
             setShowDetailsModal(true);
         } catch (error) {
@@ -94,9 +95,9 @@ export const PersonalPage = () => {
         e.preventDefault();
         try {
             if (editMode && selectedPerson) {
-                await axios.put(`http://localhost:3000/api/personal/${selectedPerson.id}`, formData);
+                await axios.put(`${API_URL}/personal/${selectedPerson.id}`, formData);
             } else {
-                await axios.post('http://localhost:3000/api/personal', formData);
+                await axios.post(`${API_URL}/personal`, formData);
             }
             setShowModal(false);
             fetchPersonal();
@@ -109,7 +110,7 @@ export const PersonalPage = () => {
         e.preventDefault();
         if (!selectedPerson) return;
         try {
-            await axios.post(`http://localhost:3000/api/personal/${selectedPerson.id}/time-log`, timeLogForm);
+            await axios.post(`${API_URL}/personal/${selectedPerson.id}/time-log`, timeLogForm);
             setShowTimeLogModal(false);
             if (showDetailsModal) fetchDetails(selectedPerson.id);
         } catch (error) {
@@ -121,7 +122,7 @@ export const PersonalPage = () => {
         e.preventDefault();
         if (!selectedPerson) return;
         try {
-            await axios.post(`http://localhost:3000/api/personal/${selectedPerson.id}/dotacion`, dotacionForm);
+            await axios.post(`${API_URL}/personal/${selectedPerson.id}/dotacion`, dotacionForm);
             setShowDotacionModal(false);
             if (showDetailsModal) fetchDetails(selectedPerson.id);
         } catch (error) {
@@ -132,7 +133,7 @@ export const PersonalPage = () => {
     const handleDelete = async (id: number) => {
         if (!confirm('¿Seguro que deseas eliminar este registro?')) return;
         try {
-            await axios.delete(`http://localhost:3000/api/personal/${id}`);
+            await axios.delete(`${API_URL}/personal/${id}`);
             fetchPersonal();
         } catch (error) {
             alert('Error eliminando personal');

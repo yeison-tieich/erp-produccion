@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { API_URL } from '../api';
 import { Package, Plus, Search, AlertCircle, ArrowUpCircle, Edit3, X, Eye, History } from 'lucide-react';
 
 interface Material {
@@ -39,16 +39,16 @@ export const Inventory = () => {
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
-    
+
     const [addAmount, setAddAmount] = useState('');
     const [refId, setRefId] = useState('');
-    
+
     const [adjustAmount, setAdjustAmount] = useState('');
     const [adjustRefId, setAdjustRefId] = useState('');
-    
+
     const [movements, setMovements] = useState<Movement[]>([]);
     const [loadingMovements, setLoadingMovements] = useState(false);
-    
+
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState({
         nombre_mp: '',
@@ -60,7 +60,7 @@ export const Inventory = () => {
 
     const fetchInventory = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/inventory');
+            const res = await axios.get(`${API_URL}/inventory`);
             setMaterials(res.data);
         } catch (error) {
             console.error(error);
@@ -77,7 +77,7 @@ export const Inventory = () => {
         e.preventDefault();
         if (!selectedMaterial) return;
         try {
-            await axios.post(`http://localhost:3000/api/inventory/${selectedMaterial.id}/add-stock`, {
+            await axios.post(`${API_URL}/inventory/${selectedMaterial.id}/add-stock`, {
                 cantidad: Number(addAmount),
                 referencia_id: refId
             });
@@ -95,7 +95,7 @@ export const Inventory = () => {
         e.preventDefault();
         if (!selectedMaterial) return;
         try {
-            await axios.post(`http://localhost:3000/api/inventory/${selectedMaterial.id}/adjust-stock`, {
+            await axios.post(`${API_URL}/inventory/${selectedMaterial.id}/adjust-stock`, {
                 cantidad: Number(adjustAmount),
                 referencia_id: adjustRefId
             });
@@ -113,7 +113,7 @@ export const Inventory = () => {
         e.preventDefault();
         if (!selectedMaterial) return;
         try {
-            await axios.put(`http://localhost:3000/api/inventory/${selectedMaterial.id}`, editData);
+            await axios.put(`${API_URL}/inventory/${selectedMaterial.id}`, editData);
             setShowEditModal(false);
             fetchInventory();
             alert('Material actualizado con éxito');
@@ -125,7 +125,7 @@ export const Inventory = () => {
     const handleCreateMaterial = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.post('http://localhost:3000/api/inventory', newMaterialData);
+            await axios.post(`${API_URL}/inventory`, newMaterialData);
             setShowCreateModal(false);
             setNewMaterialData(initialNewMaterialState);
             fetchInventory();
@@ -139,7 +139,7 @@ export const Inventory = () => {
         setSelectedMaterial(material);
         setLoadingMovements(true);
         try {
-            const res = await axios.get(`http://localhost:3000/api/inventory/${material.id}/movements`);
+            const res = await axios.get(`${API_URL}/inventory/${material.id}/movements`);
             setMovements(res.data);
         } catch (error) {
             console.error(error);
@@ -273,7 +273,7 @@ export const Inventory = () => {
 
             {/* Create Material Modal */}
             {showCreateModal && (
-                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-bold">Crear Nuevo Material</h3>
@@ -286,7 +286,7 @@ export const Inventory = () => {
                                     type="text"
                                     className="w-full px-3 py-2 border rounded-lg"
                                     value={newMaterialData.sku_mp}
-                                    onChange={e => setNewMaterialData({...newMaterialData, sku_mp: e.target.value})}
+                                    onChange={e => setNewMaterialData({ ...newMaterialData, sku_mp: e.target.value })}
                                     required
                                 />
                             </div>
@@ -296,7 +296,7 @@ export const Inventory = () => {
                                     type="text"
                                     className="w-full px-3 py-2 border rounded-lg"
                                     value={newMaterialData.nombre_mp}
-                                    onChange={e => setNewMaterialData({...newMaterialData, nombre_mp: e.target.value})}
+                                    onChange={e => setNewMaterialData({ ...newMaterialData, nombre_mp: e.target.value })}
                                     required
                                 />
                             </div>
@@ -306,7 +306,7 @@ export const Inventory = () => {
                                     type="text"
                                     className="w-full px-3 py-2 border rounded-lg"
                                     value={newMaterialData.categoria_mp}
-                                    onChange={e => setNewMaterialData({...newMaterialData, categoria_mp: e.target.value})}
+                                    onChange={e => setNewMaterialData({ ...newMaterialData, categoria_mp: e.target.value })}
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -316,7 +316,7 @@ export const Inventory = () => {
                                         type="text"
                                         className="w-full px-3 py-2 border rounded-lg"
                                         value={newMaterialData.unidad_medida_stock}
-                                        onChange={e => setNewMaterialData({...newMaterialData, unidad_medida_stock: e.target.value})}
+                                        onChange={e => setNewMaterialData({ ...newMaterialData, unidad_medida_stock: e.target.value })}
                                         placeholder="Kg, Und, etc"
                                     />
                                 </div>
@@ -326,7 +326,7 @@ export const Inventory = () => {
                                         type="number"
                                         className="w-full px-3 py-2 border rounded-lg"
                                         value={newMaterialData.punto_reorden}
-                                        onChange={e => setNewMaterialData({...newMaterialData, punto_reorden: Number(e.target.value)})}
+                                        onChange={e => setNewMaterialData({ ...newMaterialData, punto_reorden: Number(e.target.value) })}
                                     />
                                 </div>
                             </div>
@@ -496,11 +496,10 @@ export const Inventory = () => {
                                             {movements.map((mov) => (
                                                 <tr key={mov.id} className="hover:bg-gray-50">
                                                     <td className="px-3 py-2">
-                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                            mov.tipo_movimiento === 'Ingreso Compra' ? 'bg-green-100 text-green-700' :
-                                                            mov.tipo_movimiento === 'Consumo OT' ? 'bg-red-100 text-red-700' :
-                                                            'bg-gray-100 text-gray-700'
-                                                        }`}>
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${mov.tipo_movimiento === 'Ingreso Compra' ? 'bg-green-100 text-green-700' :
+                                                                mov.tipo_movimiento === 'Consumo OT' ? 'bg-red-100 text-red-700' :
+                                                                    'bg-gray-100 text-gray-700'
+                                                            }`}>
                                                             {mov.tipo_movimiento}
                                                         </span>
                                                     </td>

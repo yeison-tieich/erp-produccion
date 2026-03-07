@@ -1,8 +1,4 @@
-import { create } from 'zustand';
-import axios from 'axios';
-import { ProyectoEspecial } from '../types';
-
-const API_URL = 'http://localhost:3000/api';
+import { API_URL } from '../api';
 
 interface SpecialProjectsState {
   projects: ProyectoEspecial[];
@@ -11,7 +7,7 @@ interface SpecialProjectsState {
   error: string | null;
   fetchProjects: () => Promise<void>;
   fetchProject: (id: string) => Promise<void>;
-  createProject: (project: Omit<ProyectoEspecial, 'id' | 'createdAt' | 'updatedAt' | 'fases' | 'historial' | 'archivos' | 'notas' | 'cargas_maquina' | 'porcentaje_avance' | 'indicador_riesgo' | 'bloqueado' >) => Promise<void>;
+  createProject: (project: Omit<ProyectoEspecial, 'id' | 'createdAt' | 'updatedAt' | 'fases' | 'historial' | 'archivos' | 'notas' | 'cargas_maquina' | 'porcentaje_avance' | 'indicador_riesgo' | 'bloqueado'>) => Promise<void>;
   updateProject: (id: string, project: Partial<ProyectoEspecial>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 }

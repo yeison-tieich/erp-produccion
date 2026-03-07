@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Play, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '../store/auth.store';
+import { API_URL } from '../api';
 
 interface Task {
     id: number;
@@ -34,7 +35,7 @@ export const Tasks = () => {
 
     const fetchTasks = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/tasks');
+            const res = await axios.get(`${API_URL}/tasks`);
             setTasks(res.data);
         } catch (error) {
             console.error(error);
@@ -49,7 +50,7 @@ export const Tasks = () => {
 
     const handleStartTask = async (id: number) => {
         try {
-            await axios.post(`http://localhost:3000/api/tasks/${id}/start`);
+            await axios.post(`${API_URL}/tasks/${id}/start`);
             fetchTasks();
         } catch (error) {
             alert('Error al iniciar tarea');
@@ -61,7 +62,7 @@ export const Tasks = () => {
         if (!finishingTask) return;
 
         try {
-            await axios.post(`http://localhost:3000/api/tasks/${finishingTask.id}/finish`, {
+            await axios.post(`${API_URL}/tasks/${finishingTask.id}/finish`, {
                 cantidad_buena: Number(goodQty),
                 cantidad_mala: Number(badQty),
                 tiempo_parada_min: Number(stopTime)

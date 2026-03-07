@@ -6,6 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon --exec ts-node --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "postinstall": "prisma generate",
     "seed:all": "npx ts-node prisma/seed.ts && npx ts-node prisma/seed-personal.ts && npx ts-node prisma/seed-machines.ts && npx ts-node prisma/seed-operations.ts && node prisma/seed.js"
   },
   "keywords": [],

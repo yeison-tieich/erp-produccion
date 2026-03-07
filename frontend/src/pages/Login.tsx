@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useAuthStore } from '../store/auth.store';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../api';
 
 export const Login = () => {
     const [email, setEmail] = useState('');
@@ -14,7 +15,7 @@ export const Login = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const res = await axios.post('http://localhost:3000/api/auth/login', { email, password });
+            const res = await axios.post(`${API_URL}/auth/login`, { email, password });
             setAuth(res.data.user, res.data.token);
 
             // Redirect based on role

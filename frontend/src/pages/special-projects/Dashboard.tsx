@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Maquina, CargaMaquina } from '../../types';
-
-const API_URL = 'http://localhost:3000/api';
+import { API_URL } from '../../api';
 
 interface MachineLoad extends Maquina {
   carga: CargaMaquina[];
@@ -64,9 +63,8 @@ const SpecialProjectsDashboard: React.FC = () => {
           return (
             <div
               key={machine.id}
-              className={`border p-4 rounded-lg ${
-                occupation > 90 ? 'border-red-500' : ''
-              }`}
+              className={`border p-4 rounded-lg ${occupation > 90 ? 'border-red-500' : ''
+                }`}
             >
               <h2 className="font-bold text-lg">{machine.descripcion}</h2>
               <p>Horas disponibles semana: {machine.horas_disponibles_semana || 40}</p>
@@ -104,7 +102,7 @@ Date.prototype.getWeek = function () {
       ((date.getTime() - week1.getTime()) / 86400000 -
         3 +
         ((week1.getDay() + 6) % 7)) /
-        7
+      7
     )
   );
 };

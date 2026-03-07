@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { BASE_URL } from '../api';
 
 export const generateOrderPDF = async (order: any) => {
     const doc = new jsPDF();
@@ -9,7 +10,7 @@ export const generateOrderPDF = async (order: any) => {
     // Helper to load logo from server
     const loadLogo = async () => {
         try {
-            const logoUrl = 'http://localhost:3000/public/Logo_MT.PNG';
+            const logoUrl = `${BASE_URL}/public/Logo_MT.PNG`;
             const response = await fetch(logoUrl);
             if (!response.ok) return null;
             const blob = await response.blob();

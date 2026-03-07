@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { API_URL, BASE_URL } from '../api';
 import {
     Settings, Plus, Search, Activity,
     Calendar, AlertTriangle, CheckCircle, Info,
@@ -43,7 +44,7 @@ export const MaintenancePage = () => {
     const fetchMachines = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3000/api/machines');
+            const res = await axios.get(`${API_URL}/machines`);
             setMachines(res.data);
         } catch (error) {
             console.error('Error fetching machines:', error);
@@ -60,9 +61,9 @@ export const MaintenancePage = () => {
         e.preventDefault();
         try {
             if (editMode && selectedMachine) {
-                await axios.put(`http://localhost:3000/api/machines/${selectedMachine.id}`, formData);
+                await axios.put(`${API_URL}/machines/${selectedMachine.id}`, formData);
             } else {
-                await axios.post('http://localhost:3000/api/machines', formData);
+                await axios.post(`${API_URL}/machines`, formData);
             }
             setShowModal(false);
             fetchMachines();
@@ -74,7 +75,7 @@ export const MaintenancePage = () => {
     const handleDelete = async (id: number) => {
         if (!confirm('¿Seguro que deseas eliminar este registro?')) return;
         try {
-            await axios.delete(`http://localhost:3000/api/machines/${id}`);
+            await axios.delete(`${API_URL}/machines/${id}`);
             fetchMachines();
         } catch (error) {
             alert('Error eliminando máquina');
@@ -145,7 +146,7 @@ export const MaintenancePage = () => {
                             {/* Card Header/Photo */}
                             <div className="h-48 bg-slate-900 relative overflow-hidden">
                                 {machine.foto_url ? (
-                                    <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(http://localhost:3000/images/${machine.foto_url})` }}></div>
+                                    <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${BASE_URL}/images/${machine.foto_url})` }}></div>
                                 ) : (
                                     <div className="absolute inset-0 flex items-center justify-center opacity-20">
                                         <Settings className="w-24 h-24" />

@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { API_URL } from '../api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
 import { Users, Package, AlertTriangle, TrendingUp, Clock, DollarSign, CheckCircle, Activity, Factory, Wrench } from 'lucide-react';
 
@@ -32,7 +33,7 @@ export const Dashboard = () => {
 
     const fetchDashboardData = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/dashboard/stats');
+            const res = await axios.get(`${API_URL}/dashboard/stats`);
             setStats(res.data);
         } catch (error) {
             console.error('Error fetching dashboard data:', error);

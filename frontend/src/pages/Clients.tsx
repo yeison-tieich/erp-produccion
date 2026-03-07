@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { API_URL } from '../api';
 import {
     Users, Search, Package, ArrowRight,
     Box, User, MapPin, ExternalLink, X, Edit3, Phone, Star
@@ -44,7 +45,7 @@ export const Clients = () => {
 
     const fetchClients = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/clients');
+            const res = await axios.get(`${API_URL}/clients`);
             setClients(res.data);
         } catch (error) {
             console.error(error);
@@ -55,7 +56,7 @@ export const Clients = () => {
 
     const fetchClientProducts = async (clientId: number, clientName: string) => {
         try {
-            const res = await axios.get(`http://localhost:3000/api/clients/${clientId}`);
+            const res = await axios.get(`${API_URL}/clients/${clientId}`);
             setSelectedClientProducts(res.data.productos);
             setSelectedClientName(clientName);
             setShowProductsModal(true);
@@ -68,7 +69,7 @@ export const Clients = () => {
         e.preventDefault();
         if (!selectedClient) return;
         try {
-            await axios.put(`http://localhost:3000/api/clients/${selectedClient.id}`, editData);
+            await axios.put(`${API_URL}/clients/${selectedClient.id}`, editData);
             setShowEditModal(false);
             fetchClients();
             alert('Cliente actualizado con éxito');
@@ -98,7 +99,7 @@ export const Clients = () => {
     const handleSaveRating = async () => {
         if (!selectedClientForRating) return;
         try {
-            await axios.patch(`http://localhost:3000/api/clients/${selectedClientForRating.id}/rating`, {
+            await axios.patch(`${API_URL}/clients/${selectedClientForRating.id}/rating`, {
                 calificacion: tempRating
             });
             setShowRatingModal(false);
@@ -333,11 +334,10 @@ export const Clients = () => {
                                     className="transition-all hover:scale-125"
                                 >
                                     <Star
-                                        className={`w-12 h-12 cursor-pointer transition-all ${
-                                            star <= tempRating
+                                        className={`w-12 h-12 cursor-pointer transition-all ${star <= tempRating
                                                 ? 'fill-yellow-400 text-yellow-400'
                                                 : 'text-gray-300 hover:text-yellow-300'
-                                        }`}
+                                            }`}
                                     />
                                 </button>
                             ))}
