@@ -44,3 +44,35 @@ export const deleteMachine = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error deleting machine' });
     }
 };
+
+export const getMachineLoad = async (req: Request, res: Response) => {
+    const { week, year } = req.query;
+
+    if (!week || !year) {
+        return res.status(400).json({ error: 'Week and year are required' });
+    }
+
+    try {
+        const machines = await prisma.maquina.findMany({
+            include: {
+                carga: {
+                    where: {
+                        semana: Number(week),
+                        ano: Number(year),
+                    },
+                    include: {
+                        proyecto: {
+                            select: {
+                                id: true,
+                                descripcion_tecnica: true,
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        res.json(machines);
+    } catch (error) {
+        res.status(500).json({ error: 'Error fetching machine load' });
+    }
+}

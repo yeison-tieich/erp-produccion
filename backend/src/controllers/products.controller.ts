@@ -7,7 +7,20 @@ import fs from 'fs';
 export const getProducts = async (req: Request, res: Response) => {
     try {
         const products = await prisma.producto.findMany({
-            include: {
+            select: {
+                id: true,
+                sku_producto: true,
+                nombre_producto: true,
+                descripcion: true,
+                cliente_id: true,
+                acabado: true,
+                imagen_url: true,
+                stock_actual: true,
+                ancho_tira: true,
+                medidas_pieza: true,
+                piezas_lamina_4x8: true,
+                piezas_lamina_2x1: true,
+                empaque_de: true,
                 cliente: true,
                 listaMateriales: {
                     include: { materiaPrima: true }
@@ -18,6 +31,7 @@ export const getProducts = async (req: Request, res: Response) => {
         });
         res.json(products);
     } catch (error) {
+        console.error('getProducts error:', error);
         res.status(500).json({ error: 'Error fetching products' });
     }
 };
@@ -69,7 +83,7 @@ export const createProduct = async (req: Request, res: Response) => {
 
 export const updateProduct = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { sku_producto, nombre_producto, descripcion, cliente_id, acabado, ubicacion, medidas_pieza, empaque_de } = req.body;
+    const { sku_producto, nombre_producto, descripcion, cliente_id, acabado, ancho_tira, medidas_pieza, empaque_de } = req.body;
     try {
         const product = await prisma.producto.update({
             where: { id: Number(id) },
@@ -79,7 +93,7 @@ export const updateProduct = async (req: Request, res: Response) => {
                 descripcion,
                 cliente_id: cliente_id ? Number(cliente_id) : null,
                 acabado,
-                ubicacion,
+                ancho_tira,
                 medidas_pieza,
                 empaque_de
             }

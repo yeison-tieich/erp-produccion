@@ -1,0 +1,9 @@
+﻿{
+    "token":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwicm9sIjoiQWRtaW5pc3RyYWRvciIsIm5vbWJyZSI6IkFkbWluaXN0cmFkb3IgR2VuZXJhbCIsImlhdCI6MTc3MTg0ODg0NiwiZXhwIjoxNzcxOTM1MjQ2fQ.FXVQFo8j16cBvVGUV3UECMmq7fUoM_xHNN6_LUqLh78",
+    "user":  {
+                 "id":  1,
+                 "nombre":  "Administrador General",
+                 "email":  "admin@controlmt.com",
+                 "rol":  "Administrador"
+             }
+}

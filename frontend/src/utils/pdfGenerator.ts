@@ -45,7 +45,7 @@ export const generateOrderPDF = async (order: any) => {
         doc.text(`OT No. ${order.numero_ot}`, pageWidth - 15, 15, { align: 'right' });
         doc.setFontSize(9);
         doc.text('REV 1 - 2025/02/18', pageWidth - 15, 22, { align: 'right' });
-        doc.text('GESTION DE PRODUCCION', pageWidth - 15, 29, { align: 'right' });
+        doc.text('ORDEN DE TRABAJO', pageWidth - 15, 29, { align: 'right' });
 
         // Header table
         yPos = 35;

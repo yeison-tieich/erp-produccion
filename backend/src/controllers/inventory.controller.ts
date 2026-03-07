@@ -1,3 +1,43 @@
+// Ajuste manual de stock (positivo o negativo)
+export const adjustStock = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { cantidad, referencia_id } = req.body; // cantidad puede ser positiva o negativa
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+            const material = await tx.materiaPrima.update({
+                where: { id: Number(id) },
+                data: { stock_actual: { increment: Number(cantidad) } },
+            });
+            await tx.movimientoInventarioMP.create({
+                data: {
+                    materia_prima_id: Number(id),
+                    tipo_movimiento: 'Ajuste',
+                    cantidad: Number(cantidad),
+                    referencia_id,
+                },
+            });
+            return material;
+        });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: 'Error ajustando stock' });
+    }
+};
+
+// Obtener historial de movimientos de un material
+export const getMaterialMovements = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const movimientos = await prisma.movimientoInventarioMP.findMany({
+            where: { materia_prima_id: Number(id) },
+            include: { materiaPrima: true },
+            orderBy: { fecha_hora: 'desc' }
+        });
+        res.json(movimientos);
+    } catch (error) {
+        res.status(500).json({ error: 'Error fetching movements' });
+    }
+};
 
 import { Request, Response } from 'express';
 import prisma from '../prisma';

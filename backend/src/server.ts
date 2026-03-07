@@ -13,6 +13,7 @@ import personalRoutes from './routes/personal.routes';
 import machineRoutes from './routes/machines.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import operationsRoutes from './routes/operations.routes';
+import specialProjectsRoutes from './routes/specialProjects.routes';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use('/api/personal', personalRoutes);
 app.use('/api/machines', machineRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/operations', operationsRoutes);
+app.use('/api/special-projects', specialProjectsRoutes);
 
 app.get('/', (req, res) => {
   res.send('Control MT API is running');

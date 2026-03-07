@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
     Users, Search, Package, ArrowRight,
-    Box, User, MapPin, ExternalLink, X, Edit3, Phone
+    Box, User, MapPin, ExternalLink, X, Edit3, Phone, Star
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -12,6 +12,7 @@ interface Client {
     nombre: string;
     contacto: string;
     direccion: string;
+    calificacion: number;
     _count: { productos: number };
 }
 
@@ -31,7 +32,10 @@ export const Clients = () => {
     const [selectedClientName, setSelectedClientName] = useState('');
     const [showProductsModal, setShowProductsModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [showRatingModal, setShowRatingModal] = useState(false);
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+    const [selectedClientForRating, setSelectedClientForRating] = useState<Client | null>(null);
+    const [tempRating, setTempRating] = useState(0);
     const [editData, setEditData] = useState({
         nombre: '',
         contacto: '',
@@ -84,6 +88,28 @@ export const Clients = () => {
         setShowEditModal(true);
     };
 
+    const openRatingModal = (e: React.MouseEvent, client: Client) => {
+        e.stopPropagation();
+        setSelectedClientForRating(client);
+        setTempRating(client.calificacion || 0);
+        setShowRatingModal(true);
+    };
+
+    const handleSaveRating = async () => {
+        if (!selectedClientForRating) return;
+        try {
+            await axios.patch(`http://localhost:3000/api/clients/${selectedClientForRating.id}/rating`, {
+                calificacion: tempRating
+            });
+            setShowRatingModal(false);
+            setSelectedClientForRating(null);
+            fetchClients();
+            alert('Calificación actualizada correctamente');
+        } catch (error) {
+            alert('Error al actualizar calificación');
+        }
+    };
+
     useEffect(() => {
         fetchClients();
     }, []);
@@ -125,6 +151,13 @@ export const Clients = () => {
                             </div>
                             <div className="flex gap-2">
                                 <button
+                                    onClick={(e) => openRatingModal(e, client)}
+                                    className="p-2 hover:bg-yellow-50 text-yellow-600 rounded-lg transition border border-transparent hover:border-yellow-100"
+                                    title="Calificar Cliente"
+                                >
+                                    <Star className="w-4 h-4" />
+                                </button>
+                                <button
                                     onClick={(e) => openEditModal(e, client)}
                                     className="p-2 hover:bg-brand-50 text-brand-600 rounded-lg transition border border-transparent hover:border-brand-100"
                                     title="Editar Cliente"
@@ -142,7 +175,17 @@ export const Clients = () => {
                             {client.nombre}
                         </h3>
 
-                        <div className="mt-4 space-y-2 text-sm text-gray-500">
+                        <div className="mt-2 flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                    key={star}
+                                    className={`w-4 h-4 ${star <= client.calificacion ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                                />
+                            ))}
+                            <span className="text-xs font-bold text-gray-400 ml-1">({client.calificacion}/5)</span>
+                        </div>
+
+                        <div className="mt-3 space-y-2 text-sm text-gray-500">
                             <div className="flex items-center gap-2">
                                 <MapPin className="w-4 h-4" />
                                 <span>{client.direccion || 'Dirección no registrada'}</span>
@@ -270,6 +313,58 @@ export const Clients = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* RATING MODAL */}
+            {showRatingModal && selectedClientForRating && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] max-w-sm w-full p-8">
+                        <h3 className="text-2xl font-black text-gray-900 mb-2">Calificar Cliente</h3>
+                        <p className="text-gray-500 font-bold mb-6">{selectedClientForRating.nombre}</p>
+
+                        {/* Star Rating Input */}
+                        <div className="flex justify-center gap-3 mb-8">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                    key={star}
+                                    onClick={() => setTempRating(star)}
+                                    className="transition-all hover:scale-125"
+                                >
+                                    <Star
+                                        className={`w-12 h-12 cursor-pointer transition-all ${
+                                            star <= tempRating
+                                                ? 'fill-yellow-400 text-yellow-400'
+                                                : 'text-gray-300 hover:text-yellow-300'
+                                        }`}
+                                    />
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="text-center mb-8">
+                            <p className="text-4xl font-black text-gray-900">{tempRating}</p>
+                            <p className="text-gray-500 font-bold">de 5 estrellas</p>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowRatingModal(false);
+                                    setSelectedClientForRating(null);
+                                }}
+                                className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-2xl font-black transition hover:bg-gray-200"
+                            >
+                                CANCELAR
+                            </button>
+                            <button
+                                onClick={handleSaveRating}
+                                className="flex-1 bg-yellow-500 text-white py-3 rounded-2xl font-black transition hover:bg-yellow-600 shadow-lg shadow-yellow-100"
+                            >
+                                GUARDAR
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

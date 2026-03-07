@@ -7,7 +7,7 @@ import {
     AlertTriangle, Edit2, Copy, Trash2, Eye,
     MoreVertical, ChevronRight, User, Settings,
     Thermometer, ShieldCheck, DollarSign, Timer, X,
-    Activity, Factory, ClipboardList
+    Activity, Factory, ClipboardList, ArrowUp, ArrowDown
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -26,6 +26,7 @@ interface Order {
     };
     tareas: any[];
     costo_total_real: number;
+    tipo_orden?: string;
 }
 
 export const Orders = () => {
@@ -38,6 +39,9 @@ export const Orders = () => {
     const [showEditModal, setShowEditModal] = useState(false);
     const [showStatusModal, setShowStatusModal] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+    const [deleteConfirmStep, setDeleteConfirmStep] = useState(0); // 0: first confirm, 1: final confirm
+    const [orderToDelete, setOrderToDelete] = useState<any>(null);
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
     const [personalList, setPersonalList] = useState<any[]>([]);
     const [machinesList, setMachinesList] = useState<any[]>([]);
@@ -114,8 +118,9 @@ export const Orders = () => {
                 const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
                 setSelectedOrder(res.data);
             }
-        } catch (error) {
-            alert('Error al eliminar tarea');
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Error al eliminar tarea';
+            alert(`Error al eliminar tarea: ${errorMsg}`);
         }
     };
 
@@ -164,6 +169,37 @@ export const Orders = () => {
         } catch (error) {
             alert('Error asignando tarea');
         }
+    };
+
+    const handleReorderTasks = async (taskIds: number[]) => {
+        if (!selectedOrder) return;
+        try {
+            await axios.post('http://localhost:3000/api/tasks/order/reorder-tasks', {
+                orden_trabajo_id: selectedOrder.id,
+                taskIds: taskIds
+            });
+            // Refresh detail view
+            const res = await axios.get(`http://localhost:3000/api/orders/${selectedOrder.id}/details`);
+            setSelectedOrder(res.data);
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Error reordenando tareas';
+            alert(`Error reordenando tareas: ${errorMsg}`);
+        }
+    };
+
+    const moveTask = (index: number, direction: 'up' | 'down') => {
+        if (!selectedOrder) return;
+        const newTasks = [...selectedOrder.tareas];
+        const task = newTasks[index];
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+        if (swapIndex < 0 || swapIndex >= newTasks.length) return;
+        
+        const swapTask = newTasks[swapIndex];
+        newTasks[index] = swapTask;
+        newTasks[swapIndex] = task;
+        
+        const newTaskIds = newTasks.map(t => t.id);
+        handleReorderTasks(newTaskIds);
     };
 
     const fetchOrders = async () => {
@@ -228,6 +264,31 @@ export const Orders = () => {
         }
     };
 
+    const initiateDeleteOrder = (order: Order) => {
+        setShowDetailModal(false); // Close detail modal if open
+        setOrderToDelete(order);
+        setDeleteConfirmStep(0);
+        setShowDeleteConfirmModal(true);
+    };
+
+    const confirmDeleteStep1 = () => {
+        setDeleteConfirmStep(1);
+    };
+
+    const handleDeleteOrder = async () => {
+        if (!orderToDelete) return;
+        try {
+            await axios.delete(`http://localhost:3000/api/orders/${orderToDelete.id}`);
+            setShowDeleteConfirmModal(false);
+            setOrderToDelete(null);
+            setDeleteConfirmStep(0);
+            fetchOrders();
+            alert('Orden eliminada correctamente');
+        } catch (err) {
+            alert('Error al eliminar orden');
+        }
+    };
+
     const handleUpdateOrder = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedOrder) return;
@@ -243,6 +304,7 @@ export const Orders = () => {
     const openEditModal = (order: Order) => {
         setSelectedOrder(order);
         setFormData({
+            tipo_orden: order.tipo_orden || 'PRODUCCION_SERIE',
             producto_id: order.producto.id.toString(),
             cantidad_fabricar: order.cantidad_fabricar.toString(),
             cliente: order.cliente || '',
@@ -276,7 +338,7 @@ export const Orders = () => {
                     <p className="text-gray-500 mt-1 font-medium">Gestión y trazabilidad de órdenes de manufactura.</p>
                 </div>
                 <button
-                    onClick={() => { setFormData({ producto_id: '', cantidad_fabricar: '', cliente: '', fecha_entrega_req: '', estado_ot: 'Pendiente' }); setShowCreateModal(true); }}
+                    onClick={() => { setFormData({ tipo_orden: 'PRODUCCION_SERIE', producto_id: '', cantidad_fabricar: '', cliente: '', fecha_entrega_req: '', estado_ot: 'Pendiente' }); setShowCreateModal(true); }}
                     className="bg-brand-600 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-brand-700 transition shadow-xl shadow-brand-100 font-black text-lg"
                 >
                     <Plus className="w-6 h-6" /> Nueva OT
@@ -345,11 +407,11 @@ export const Orders = () => {
                                 <Edit2 className="w-4 h-4" /> EDITAR
                             </button>
                             <button
-                                onClick={() => handleDuplicate(order.id)}
-                                className="flex-1 xl:flex-none flex items-center justify-center gap-2 bg-purple-50 text-purple-700 px-4 py-3 rounded-xl font-black text-xs hover:bg-purple-100 transition border border-purple-100"
-                                title="Duplicar Orden"
+                                onClick={() => generatePDF(order)}
+                                className="flex-1 xl:flex-none flex items-center justify-center gap-2 bg-blue-50 text-blue-700 px-4 py-3 rounded-xl font-black text-xs hover:bg-blue-100 transition border border-blue-100"
+                                title="Imprimir Orden de Trabajo"
                             >
-                                <Copy className="w-4 h-4" /> DUPLICAR
+                                <FileText className="w-4 h-4" /> IMPRIMIR OT
                             </button>
                             <button
                                 onClick={() => { setSelectedOrder(order); setShowStatusModal(true); }}
@@ -357,6 +419,13 @@ export const Orders = () => {
                                 title="Cambiar Estado"
                             >
                                 <Settings className="w-4 h-4" /> ESTADO
+                            </button>
+                            <button
+                                onClick={() => initiateDeleteOrder(order)}
+                                className="flex-1 xl:flex-none flex items-center justify-center gap-2 bg-red-50 text-red-700 px-4 py-3 rounded-xl font-black text-xs hover:bg-red-100 transition border border-red-100"
+                                title="Eliminar Orden"
+                            >
+                                <Trash2 className="w-4 h-4" /> ELIMINAR
                             </button>
                         </div>
                     </div>
@@ -395,6 +464,67 @@ export const Orders = () => {
                             ))}
                         </div>
                         <button onClick={() => setShowStatusModal(false)} className="w-full mt-6 py-3 text-gray-400 font-bold hover:text-gray-600">Cerrar</button>
+                    </div>
+                </div>
+            )}
+
+            {/* DELETE CONFIRMATION MODAL */}
+            {showDeleteConfirmModal && orderToDelete && (
+                <div className="fixed inset-0 bg-black/60 shadow-2xl backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] max-w-md w-full p-8">
+                        {deleteConfirmStep === 0 ? (
+                            <>
+                                <div className="flex items-center justify-center w-14 h-14 bg-red-100 rounded-full mx-auto mb-6">
+                                    <AlertTriangle className="w-7 h-7 text-red-600" />
+                                </div>
+                                <h3 className="text-2xl font-black text-center mb-2 text-gray-900">¿Seguro que deseas eliminar?</h3>
+                                <p className="text-center text-gray-500 font-bold mb-6">Orden: <span className="text-gray-900 font-black">{orderToDelete.numero_ot}</span></p>
+                                <p className="text-center text-sm text-gray-600 mb-8">Esta acción no se puede deshacer. Por favor confirma que deseas continuar.</p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setShowDeleteConfirmModal(false);
+                                            setOrderToDelete(null);
+                                            setDeleteConfirmStep(0);
+                                        }}
+                                        className="flex-1 py-3 px-4 rounded-2xl font-black text-gray-600 bg-gray-100 hover:bg-gray-200 transition"
+                                    >
+                                        CANCELAR
+                                    </button>
+                                    <button
+                                        onClick={confirmDeleteStep1}
+                                        className="flex-1 py-3 px-4 rounded-2xl font-black text-white bg-red-600 hover:bg-red-700 transition"
+                                    >
+                                        CONTINUAR
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex items-center justify-center w-14 h-14 bg-red-100 rounded-full mx-auto mb-6">
+                                    <AlertTriangle className="w-7 h-7 text-red-600" />
+                                </div>
+                                <h3 className="text-2xl font-black text-center mb-2 text-gray-900">Confirmar eliminación</h3>
+                                <p className="text-center text-red-600 font-black text-lg mb-8">⚠️ ESTA ACCIÓN NO SE PUEDE DESHACER ⚠️</p>
+                                <p className="text-center text-sm text-gray-600 mb-8">Orden a eliminar: <span className="text-gray-900 font-black text-base">{orderToDelete.numero_ot}</span></p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setDeleteConfirmStep(0);
+                                        }}
+                                        className="flex-1 py-3 px-4 rounded-2xl font-black text-gray-600 bg-gray-100 hover:bg-gray-200 transition"
+                                    >
+                                        ATRÁS
+                                    </button>
+                                    <button
+                                        onClick={handleDeleteOrder}
+                                        className="flex-1 py-3 px-4 rounded-2xl font-black text-white bg-red-600 hover:bg-red-700 transition"
+                                    >
+                                        ELIMINAR DEFINITIVAMENTE
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -583,7 +713,7 @@ export const Orders = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
-                                            {selectedOrder.tareas.map((tarea: any) => (
+                                            {selectedOrder.tareas.map((tarea: any, index: number) => (
                                                 <tr key={tarea.id} className="hover:bg-gray-50/80 transition-colors">
                                                     <td className="p-6 text-center font-black text-slate-400 text-xs">#{tarea.rutaFabricacion?.no_operacion || '--'}</td>
                                                     <td className="p-6">
@@ -643,6 +773,8 @@ export const Orders = () => {
                                                     </td>
                                                     <td className="p-6 text-center">
                                                         <div className="flex items-center justify-center gap-2">
+                                                            <button onClick={() => moveTask(index, 'up')} disabled={index === 0} className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-gray-200 disabled:opacity-50" title="Mover Arriba"><ArrowUp className="w-4 h-4" /></button>
+                                                            <button onClick={() => moveTask(index, 'down')} disabled={index === selectedOrder.tareas.length - 1} className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-gray-200 disabled:opacity-50" title="Mover Abajo"><ArrowDown className="w-4 h-4" /></button>
                                                             {tarea.estado_tarea === 'Pendiente' && (
                                                                 <button
                                                                     onClick={() => handleStartTask(tarea.id)}
@@ -714,9 +846,9 @@ export const Orders = () => {
                         <div className="p-8 border-t flex justify-end gap-4 bg-white">
                             <button
                                 onClick={() => generatePDF(selectedOrder)}
-                                className="flex items-center gap-2 px-6 py-4 rounded-2xl bg-gray-100 text-gray-600 font-black text-xs hover:bg-gray-200 transition"
+                                className="flex items-center gap-2 px-6 py-4 rounded-2xl bg-blue-100 text-blue-600 font-black text-xs hover:bg-blue-200 transition"
                             >
-                                <FileText className="w-4 h-4" /> REPORTE TÉCNICO (PDF)
+                                <FileText className="w-4 h-4" /> IMPRIMIR ORDEN DE TRABAJO
                             </button>
                             <button className="flex items-center gap-2 px-6 py-4 rounded-2xl bg-brand-600 text-white font-black text-xs hover:bg-brand-700 transition shadow-lg shadow-brand-100">
                                 <CheckCircle className="w-4 h-4" /> CERRAR Y VALIDAR ORDEN

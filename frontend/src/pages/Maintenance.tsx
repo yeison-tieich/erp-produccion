@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-    Settings, Plus, Search, Tool, Activity,
+    Settings, Plus, Search, Activity,
     Calendar, AlertTriangle, CheckCircle, Info,
     X, Edit2, Trash2, Camera, Zap, Clock
 } from 'lucide-react';

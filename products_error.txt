@@ -1,0 +1,9 @@
+﻿Invoke-WebRequest : Unauthorized
+En línea: 1 Carácter: 61
++ ... '; try { $r=Invoke-WebRequest -Uri 'http://localhost:3000/api/product ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (System.Net.HttpWebRequest:Htt 
+   pWebRequest) [Invoke-WebRequest], WebException
+    + FullyQualifiedErrorId : WebCmdletWebResponseException,Microsoft.PowerShe 
+   ll.Commands.InvokeWebRequestCommand
+

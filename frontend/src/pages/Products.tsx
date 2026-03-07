@@ -13,15 +13,31 @@ interface Product {
     id: number;
     sku_producto: string;
     nombre_producto: string;
-    descripcion: string;
-    cliente: string;
-    acabado: string;
-    imagen_url: string;
+    descripcion?: string | null;
+    cliente_id?: number | null;
+    cliente?: { id: number; nombre: string; contacto?: string; direccion?: string } | null;
+    acabado?: string | null;
+    imagen_url?: string | null;
     stock_actual: number;
-    ubicacion: string;
-    listaMateriales: any[];
-    rutas: any[];
+    ancho_tira?: number | null;
+    medidas_pieza?: string | null;
+    piezas_lamina_4x8?: string | null;
+    piezas_lamina_2x1?: string | null;
+    empaque_de?: string | null;
+    listaMateriales?: any[];
+    rutas?: any[];
 }
+
+const initialNewProductState = {
+    nombre_producto: '',
+    sku_producto: '',
+    cliente_id: '',
+    acabado: '',
+    ancho_tira: '',
+    medidas_pieza: '',
+    empaque_de: '',
+    stock_actual: 0,
+};
 
 export const Products = () => {
     const [products, setProducts] = useState<Product[]>([]);
@@ -37,6 +53,7 @@ export const Products = () => {
     const [showStockModal, setShowStockModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showOTModal, setShowOTModal] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
     // Form States
     const [stockQty, setStockQty] = useState('');
@@ -45,21 +62,18 @@ export const Products = () => {
     const [otDate, setOtDate] = useState('');
 
     // Edit Form States
-    const [editData, setEditData] = useState({
-        nombre_producto: '',
-        sku_producto: '',
-        cliente_id: '',
-        acabado: '',
-        ubicacion: '',
-        medidas_pieza: '',
-        empaque_de: ''
-    });
+    const [editData, setEditData] = useState<any>({ ...initialNewProductState });
+    const [newProductData, setNewProductData] = useState<any>({ ...initialNewProductState });
+    
     const [clients, setClients] = useState<any[]>([]);
 
     const fetchProducts = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3000/api/products');
+            const token = localStorage.getItem('token');
+            const res = await axios.get('http://localhost:3000/api/products', {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+            });
             setProducts(res.data);
         } catch (error) {
             console.error(error);
@@ -75,7 +89,10 @@ export const Products = () => {
 
     const fetchClients = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/clients');
+            const token = localStorage.getItem('token');
+            const res = await axios.get('http://localhost:3000/api/clients', {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+            });
             setClients(res.data);
         } catch (error) {
             console.error(error);
@@ -104,18 +121,23 @@ export const Products = () => {
         e.preventDefault();
         if (!selectedProduct) return;
         try {
+            const token = localStorage.getItem('token');
             await axios.post('http://localhost:3000/api/orders', {
+                tipo_orden: 'PRODUCCION_SERIE',
                 producto_id: selectedProduct.id,
                 cantidad_fabricar: Number(otQty),
                 cliente: selectedProduct.cliente?.nombre,
                 fecha_entrega_req: otDate
+            }, {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
             setShowOTModal(false);
             setOtQty('');
             setOtDate('');
             alert('Orden de Trabajo creada con éxito');
-        } catch (error) {
-            alert('Error creando OT');
+        } catch (error: any) {
+            const errMsg = error.response?.data?.error || 'Error creando OT';
+            alert(errMsg);
         }
     };
 
@@ -143,6 +165,23 @@ export const Products = () => {
         }
     };
 
+    const handleCreateProduct = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const token = localStorage.getItem('token');
+            await axios.post('http://localhost:3000/api/products', newProductData, {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+            });
+            setShowCreateModal(false);
+            setNewProductData({ ...initialNewProductState });
+            fetchProducts();
+            alert('Producto creado con éxito');
+        } catch (error: any) {
+            const errMsg = error.response?.data?.error || 'Error creando producto';
+            alert(errMsg);
+        }
+    };
+
     const openEditModal = (product: Product) => {
         setSelectedProduct(product);
         setEditData({
@@ -150,11 +189,16 @@ export const Products = () => {
             sku_producto: product.sku_producto,
             cliente_id: (product as any).cliente_id?.toString() || '',
             acabado: product.acabado || '',
-            ubicacion: product.ubicacion || '',
+            ancho_tira: product.ancho_tira || '',
             medidas_pieza: (product as any).medidas_pieza || '',
             empaque_de: (product as any).empaque_de || ''
         });
         setShowEditModal(true);
+    };
+
+    const openCreateModal = () => {
+        setNewProductData({ ...initialNewProductState });
+        setShowCreateModal(true);
     };
 
     const filteredProducts = products
@@ -181,7 +225,7 @@ export const Products = () => {
                     <p className="text-gray-500 mt-1">Gestiona el inventario de productos terminados y sus rutas de fabricación.</p>
                 </div>
                 <button
-                    onClick={() => alert("Función para crear nuevo producto manualmente")}
+                    onClick={openCreateModal}
                     className="bg-brand-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-brand-700 transition shadow-lg shadow-brand-100 font-semibold"
                 >
                     <Plus className="w-5 h-5" /> Nuevo Producto
@@ -286,6 +330,10 @@ export const Products = () => {
                                     <Tag className="w-4 h-4 text-gray-400" />
                                     <span className="truncate">{product.acabado || 'Sin acabado'}</span>
                                 </div>
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                    <MapPin className="w-4 h-4 text-gray-400" />
+                                    <span className="truncate">{product.ancho_tira || 'Sin ancho'}</span>
+                                </div>
                             </div>
 
                             {/* Action Buttons Footer */}
@@ -318,7 +366,111 @@ export const Products = () => {
                 </div>
             )}
 
-            {/* Detail Modal */}
+            {/* All other modals (Detail, Stock, OT, Edit) go here... */}
+
+            {/* CREATE PRODUCT MODAL */}
+            {showCreateModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2.5rem] shadow-xl max-w-2xl w-full p-10 max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-8">
+                            <h3 className="text-2xl font-black">Crear Nuevo Producto</h3>
+                            <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
+                        </div>
+
+                        <form onSubmit={handleCreateProduct} className="space-y-6">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                        value={newProductData.nombre_producto}
+                                        onChange={e => setNewProductData({ ...newProductData, nombre_producto: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
+                                        value={newProductData.sku_producto}
+                                        onChange={e => setNewProductData({ ...newProductData, sku_producto: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
+                                    <select
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                        value={newProductData.cliente_id}
+                                        onChange={e => setNewProductData({ ...newProductData, cliente_id: e.target.value })}
+                                    >
+                                        <option value="">Seleccionar Cliente</option>
+                                        {clients.map(c => (
+                                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                        value={newProductData.acabado}
+                                        onChange={e => setNewProductData({ ...newProductData, acabado: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                        value={newProductData.ancho_tira}
+                                        onChange={e => setNewProductData({ ...newProductData, ancho_tira: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                        value={newProductData.medidas_pieza}
+                                        onChange={e => setNewProductData({ ...newProductData, medidas_pieza: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                        value={newProductData.empaque_de}
+                                        onChange={e => setNewProductData({ ...newProductData, empaque_de: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCreateModal(false)}
+                                    className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
+                                >
+                                    CANCELAR
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
+                                >
+                                    CREAR PRODUCTO
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Other modals here... */}
             {showDetailModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -344,8 +496,8 @@ export const Products = () => {
                                         <span className="text-2xl font-black text-brand-600">{selectedProduct.stock_actual}</span>
                                     </div>
                                     <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Ubicación</span>
-                                        <span className="text-lg font-bold text-gray-700">{selectedProduct.ubicacion || 'No definida'}</span>
+                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Ancho Tira (mm)</span>
+                                        <span className="text-lg font-bold text-gray-700">{selectedProduct.ancho_tira || 'No definida'}</span>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -354,8 +506,8 @@ export const Products = () => {
                                         <span className="font-bold">{selectedProduct.cliente?.nombre || 'N/A'}</span>
                                     </div>
                                     <div className="flex items-center justify-between border-b pb-2">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><MapPin className="w-4 h-4" /> Ubicación:</span>
-                                        <span className="font-bold">{selectedProduct.ubicacion || 'N/A'}</span>
+                                        <span className="text-gray-500 font-medium flex items-center gap-2"><MapPin className="w-4 h-4" /> Ancho Tira:</span>
+                                        <span className="font-bold">{selectedProduct.ancho_tira || 'N/A'}</span>
                                     </div>
                                     <div className="flex items-center justify-between border-b pb-2">
                                         <span className="text-gray-500 font-medium flex items-center gap-2"><Tag className="w-4 h-4" /> Acabado:</span>
@@ -367,7 +519,7 @@ export const Products = () => {
                                     </div>
                                     <div className="flex items-center justify-between border-b pb-2 text-blue-600">
                                         <span className="text-gray-500 font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Piezas/Hora:</span>
-                                        <span className="font-black">{selectedProduct.rutas[0]?.piezas_por_hora_estimado || 'N/A'}</span>
+                                        <span className="font-black">{selectedProduct.rutas && selectedProduct.rutas.length > 0 ? selectedProduct.rutas[0]?.piezas_por_hora_estimado : 'N/A'}</span>
                                     </div>
                                 </div>
 
@@ -389,7 +541,7 @@ export const Products = () => {
                                 <div className="space-y-3">
                                     <h4 className="font-black text-gray-900 uppercase text-xs tracking-widest">Materiales (BoM)</h4>
                                     <div className="space-y-2">
-                                        {selectedProduct.listaMateriales.map((m: any) => (
+                                        {selectedProduct.listaMateriales && selectedProduct.listaMateriales.map((m: any) => (
                                             <div key={m.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
                                                 <span className="text-sm font-semibold">{m.materiaPrima.nombre_mp}</span>
                                                 <span className="bg-white px-3 py-1 rounded-lg text-xs font-black border border-gray-100">
@@ -405,7 +557,6 @@ export const Products = () => {
                 </div>
             )}
 
-            {/* Stock Adjustment Modal */}
             {showStockModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-3xl shadow-xl max-w-md w-full p-8">
@@ -459,7 +610,6 @@ export const Products = () => {
                 </div>
             )}
 
-            {/* QUICK OT MODAL */}
             {showOTModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-3xl shadow-xl max-w-md w-full p-8">
@@ -508,8 +658,7 @@ export const Products = () => {
                     </div>
                 </div>
             )}
-
-            {/* EDIT PRODUCT MODAL */}
+            
             {showEditModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2.5rem] shadow-xl max-w-2xl w-full p-10 max-h-[90vh] overflow-y-auto">
@@ -572,12 +721,12 @@ export const Products = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ubicación</label>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
                                     <input
                                         type="text"
                                         className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={editData.ubicacion}
-                                        onChange={e => setEditData({ ...editData, ubicacion: e.target.value })}
+                                        value={editData.ancho_tira}
+                                        onChange={e => setEditData({ ...editData, ancho_tira: e.target.value })}
                                     />
                                 </div>
                                 <div>

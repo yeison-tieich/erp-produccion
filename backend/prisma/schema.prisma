@@ -17,6 +17,7 @@ model Usuario {
   email         String   @unique
   password_hash String
   rol           String   // 'Administrador', 'Supervisor', 'Operario'
+  historial     HistorialCambios[]
 }
 
 model MateriaPrima {
@@ -54,7 +55,7 @@ model Producto {
   acabado         String?
   imagen_url      String?
   stock_actual    Int      @default(0)
-  ubicacion       String?
+  ancho_tira      Decimal? // ANCHO DE TIRA en mm
   
   // New technical fields
   medidas_pieza       String? // MEDIDAS X PIEZA mm
@@ -211,8 +212,10 @@ model Maquina {
   capacidad_trabajo     String?
   horas_maquina_mes     String?
   foto_url              String?
+  horas_disponibles_semana Decimal? @default(40)
   
   tareas                TareaProduccion[]
+  carga                 CargaMaquina[]
 }
 
 // Materiales y partes para proyectos especiales
@@ -234,4 +237,105 @@ model OperacionCatalog {
   nombre_operacion String
   centro_trabajo   String?
   orden            Int     @default(0)
+}
+
+model ProyectoEspecial {
+  id                    Int      @id @default(autoincrement())
+  codigo                String   @unique @default(cuid())
+  cliente               String
+  descripcion_tecnica   String
+  tipo_proyecto         String   // 'Troquel', 'Reparación', 'Dispositivo', etc.
+  responsable_tecnico   String
+  fecha_inicio          DateTime
+  fecha_compromiso      DateTime
+  estado                String   // 'Activo', 'En espera', 'Detenido', 'Terminado'
+  prioridad             String   // 'Alta', 'Media', 'Baja'
+  penalidad_retraso     String?
+  porcentaje_avance     Float    @default(0)
+  indicador_riesgo      String   @default("Bajo") // 'Bajo', 'Medio', 'Alto'
+  bloqueado             Boolean  @default(false)
+  
+  fases                 FaseProyecto[]
+  historial             HistorialCambios[]
+  archivos              ArchivoAdjunto[]
+  notas                 NotaTecnica[]
+  cargas_maquina        CargaMaquina[]
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model FaseProyecto {
+  id                    Int      @id @default(autoincrement())
+  proyecto              ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id           Int
+  nombre                String   // 'Diseño', 'Programación', 'Fabricación', 'Ajuste', 'Prueba', 'Cierre'
+  responsable           String
+  horas_estimadas       Decimal
+  horas_reales          Decimal?
+  fecha_inicio          DateTime
+  fecha_fin             DateTime?
+  estado                String   @default("Pendiente") // 'Pendiente', 'En Progreso', 'Completada', 'Cerrada'
+  observaciones         String?
+  
+  // Para evidencias (fotos, archivos) se podría agregar un modelo relacionado
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model CargaMaquina {
+  id              Int       @id @default(autoincrement())
+  maquina         Maquina   @relation(fields: [maquina_id], references: [id])
+  maquina_id      Int
+  proyecto        ProyectoEspecial? @relation(fields: [proyecto_id], references: [id])
+  proyecto_id     Int?
+  horas_asignadas Decimal
+  semana          Int       // Semana del año
+  ano             Int
+  
+  @@unique([maquina_id, semana, ano])
+}
+
+model HistorialCambios {
+  id              Int       @id @default(autoincrement())
+  proyecto        ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id     Int
+  usuario         Usuario   @relation(fields: [usuario_id], references: [id])
+  usuario_id      Int
+  fecha           DateTime  @default(now())
+  descripcion     String
+}
+
+model ArchivoAdjunto {
+  id              Int       @id @default(autoincrement())
+  proyecto        ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id     Int
+  nombre_archivo  String
+  url_archivo     String
+  fecha_carga     DateTime  @default(now())
+}
+
+model NotaTecnica {
+  id              Int       @id @default(autoincrement())
+  proyecto        ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id     Int
+  autor           String
+  fecha           DateTime  @default(now())
+  contenido       String
+}
+
+model Alerta {
+  id              Int       @id @default(autoincrement())
+  tipo            String    // 'SOBRECARGA_MAQUINA', 'PROYECTO_DETENIDO', 'HORAS_EXCEDIDAS', etc.
+  mensaje         String
+  fecha           DateTime  @default(now())
+  leida           Boolean   @default(false)
+  proyecto_id     Int?
+  maquina_id      Int?
+}
+
+model Configuracion {
+  id                      Int     @id @default(autoincrement())
+  max_proyectos_activos   Int     @default(10)
 }

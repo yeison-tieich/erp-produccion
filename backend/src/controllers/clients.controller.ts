@@ -51,3 +51,23 @@ export const updateClient = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error updating client' });
     }
 };
+
+export const updateClientRating = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { calificacion } = req.body;
+    try {
+        // Validate rating is between 0 and 5
+        const rating = Number(calificacion);
+        if (isNaN(rating) || rating < 0 || rating > 5) {
+            return res.status(400).json({ error: 'Calificación debe estar entre 0 y 5' });
+        }
+
+        const client = await prisma.cliente.update({
+            where: { id: Number(id) },
+            data: { calificacion: rating }
+        });
+        res.json(client);
+    } catch (error) {
+        res.status(500).json({ error: 'Error updating client rating' });
+    }
+};

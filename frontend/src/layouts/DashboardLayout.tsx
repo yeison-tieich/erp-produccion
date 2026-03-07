@@ -11,6 +11,23 @@ export const DashboardLayout = () => {
     const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
 
+    // Ensure sidebar/overlay is closed on mount and when route changes
+    React.useEffect(() => {
+        setIsSidebarOpen(false);
+    }, []);
+
+    // Close sidebar when navigating to another route
+    React.useEffect(() => {
+        setIsSidebarOpen(false);
+    }, [location.pathname]);
+
+    // Close on Escape key
+    React.useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsSidebarOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
     if (!user) {
         return <Navigate to="/login" replace />;
     }
@@ -28,6 +45,7 @@ export const DashboardLayout = () => {
         { icon: ClipboardList, label: 'Órdenes Trabajo', path: '/orders', roles: ['Administrador', 'Supervisor'] },
         { icon: Users, label: 'Control Personal', path: '/personal', roles: ['Administrador', 'Supervisor'] },
         { icon: Settings, label: 'Mantenimiento', path: '/maintenance', roles: ['Administrador', 'Supervisor'] },
+        { icon: Factory, label: 'Proyectos Especiales', path: '/special-projects', roles: ['Administrador', 'Supervisor'] },
         { icon: Factory, label: 'Mis Tareas', path: '/tasks', roles: ['Operario'] },
         { icon: Users, label: 'Usuarios', path: '/users', roles: ['Administrador'] },
     ];
@@ -50,7 +68,7 @@ export const DashboardLayout = () => {
                 isSidebarOpen ? "translate-x-0" : "-translate-x-full"
             )}>
                 <div className="flex items-center justify-between h-16 px-6 bg-slate-800">
-                    <span className="text-xl font-bold tracking-wider">CONTROL MT</span>
+                    <img src="/logo.png" alt="Control MT Logo" className="h-12 w-auto" />
                     <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden">
                         <X className="w-6 h-6" />
                     </button>

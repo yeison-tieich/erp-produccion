@@ -81,6 +81,19 @@ export const finishTask = async (req: Request, res: Response) => {
 
     try {
         const result = await prisma.$transaction(async (tx) => {
+            const originalTask = await tx.tareaProduccion.findUnique({
+                where: { id: Number(id) },
+            });
+
+            if (!originalTask) {
+                throw new Error("Task not found");
+            }
+            
+            const fecha_hora_fin = new Date();
+            let duration = 0;
+            if (originalTask.fecha_hora_inicio) {
+                duration = Math.round((fecha_hora_fin.getTime() - originalTask.fecha_hora_inicio.getTime()) / 60000); // in minutes
+            }
             // 1. Update Task
             const task = await tx.tareaProduccion.update({
                 where: { id: Number(id) },
@@ -89,7 +102,8 @@ export const finishTask = async (req: Request, res: Response) => {
                     fecha_hora_fin: new Date(),
                     cantidad_buena: Number(cantidad_buena),
                     cantidad_mala: Number(cantidad_mala),
-                    tiempo_parada_min: Number(tiempo_parada_min)
+                    tiempo_parada_min: Number(tiempo_parada_min),
+                    duracion_real_min: duration
                 },
                 include: { ordenTrabajo: { include: { producto: { include: { listaMateriales: true } } } } }
             });
@@ -156,10 +170,16 @@ export const finishTask = async (req: Request, res: Response) => {
 export const deleteTask = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
+        const task = await prisma.tareaProduccion.findUnique({ where: { id: Number(id) } });
+        if (!task) {
+            return res.status(404).json({ error: 'Tarea no encontrada' });
+        }
         await prisma.tareaProduccion.delete({ where: { id: Number(id) } });
         res.json({ message: 'Tarea eliminada' });
     } catch (error) {
-        res.status(500).json({ error: 'Error eliminando tarea' });
+        console.error('Error deleting task:', error);
+        const msg = error instanceof Error ? error.message : 'Could not delete task';
+        res.status(500).json({ error: msg });
     }
 };
 
@@ -184,5 +204,81 @@ export const createTarea = async (req: Request, res: Response) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error creando tarea' });
+    }
+};
+
+// Actualizar detalles de una tarea (hora inicio/fin, costo, orden)
+export const updateTaskDetails = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { 
+        fecha_hora_inicio, 
+        fecha_hora_fin, 
+        costo_real, 
+        duracion_real_min,
+        cantidad_buena,
+        cantidad_mala
+    } = req.body;
+
+    try {
+        const updateData: any = {};
+        if (fecha_hora_inicio) updateData.fecha_hora_inicio = new Date(fecha_hora_inicio);
+        if (fecha_hora_fin) updateData.fecha_hora_fin = new Date(fecha_hora_fin);
+        if (costo_real !== undefined) updateData.costo_real = Number(costo_real);
+        if (duracion_real_min !== undefined) updateData.duracion_real_min = Number(duracion_real_min);
+        if (cantidad_buena !== undefined) updateData.cantidad_buena = Number(cantidad_buena);
+        if (cantidad_mala !== undefined) updateData.cantidad_mala = Number(cantidad_mala);
+
+        const task = await prisma.tareaProduccion.update({
+            where: { id: Number(id) },
+            data: updateData,
+            include: {
+                rutaFabricacion: true,
+                personal: true,
+                maquina: true,
+                ordenTrabajo: true
+            }
+        });
+
+        res.json(task);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error actualizando detalles de tarea' });
+    }
+};
+
+// Reordenar tareas de una orden
+export const reorderTasks = async (req: Request, res: Response) => {
+    const { orden_trabajo_id, taskIds } = req.body;
+
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+            for (let i = 0; i < taskIds.length; i++) {
+                // Update no_operacion en la ruta para reflejar el nuevo orden
+                const task = await tx.tareaProduccion.findUnique({ 
+                    where: { id: Number(taskIds[i]) },
+                    include: { rutaFabricacion: true }
+                });
+
+                if (task) {
+                    await tx.rutaFabricacion.update({
+                        where: { id: task.ruta_fabricacion_id },
+                        data: { no_operacion: (i + 1) * 10 }
+                    });
+                }
+            }
+
+            const tasks = await tx.tareaProduccion.findMany({
+                where: { orden_trabajo_id: Number(orden_trabajo_id) },
+                include: { rutaFabricacion: true, ordenTrabajo: true },
+                orderBy: { rutaFabricacion: { no_operacion: 'asc' } }
+            });
+
+            return tasks;
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error reordenando tareas' });
     }
 };

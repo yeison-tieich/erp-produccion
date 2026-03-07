@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { useAuthStore } from '../store/auth.store';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LayoutDashboard } from 'lucide-react';
 
 export const Login = () => {
     const [email, setEmail] = useState('');
@@ -33,11 +32,9 @@ export const Login = () => {
         <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
             <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8">
                 <div className="flex justify-center mb-8">
-                    <div className="bg-brand-600 p-3 rounded-full">
-                        <LayoutDashboard className="w-8 h-8 text-white" />
-                    </div>
+                    <img src="/logo.png" alt="Logo MT" className="h-24 w-auto object-contain" />
                 </div>
-                <h2 className="text-2xl font-bold text-center text-gray-800 mb-8">Control MT - Iniciar Sesión</h2>
+                <h2 className="text-2xl font-bold text-center text-gray-800 mb-8">Iniciar Sesión</h2>
 
                 {error && (
                     <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-6 text-sm">
