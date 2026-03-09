@@ -17,6 +17,13 @@ import specialProjectsRoutes from './routes/specialProjects.routes';
 
 dotenv.config();
 
+if (!process.env.JWT_SECRET) {
+  console.error('CRITICAL ERROR: JWT_SECRET is not defined in environment variables');
+}
+if (!process.env.DATABASE_URL) {
+  console.error('CRITICAL ERROR: DATABASE_URL is not defined in environment variables');
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 

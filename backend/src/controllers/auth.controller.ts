@@ -12,8 +12,9 @@ export const register = async (req: Request, res: Response) => {
       data: { nombre, email, password_hash: hashedPassword, rol },
     });
     res.status(201).json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Error registering user' });
+  } catch (error: any) {
+    console.error('Error in register:', error);
+    res.status(500).json({ error: 'Error registering user', details: error.message });
   }
 };
 
@@ -33,7 +34,8 @@ export const login = async (req: Request, res: Response) => {
       { expiresIn: '1d' }
     );
     res.json({ token, user: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
-  } catch (error) {
-    res.status(500).json({ error: 'Error logging in' });
+  } catch (error: any) {
+    console.error('Error in login:', error);
+    res.status(500).json({ error: 'Error logging in', details: error.message });
   }
 };
