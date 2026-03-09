@@ -27,7 +27,10 @@ if (!process.env.DATABASE_URL) {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: ['https://erp-produccion-dun.vercel.app', 'http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Static files for images
