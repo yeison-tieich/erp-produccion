@@ -41,53 +41,7 @@ async function main() {
         },
     })
 
-    // Materials
-    const lamina = await prisma.materiaPrima.create({
-        data: {
-            sku_mp: 'MP-LAM-001',
-            nombre_mp: 'Lámina Acero Calibre 18',
-            categoria_mp: 'Lámina',
-            unidad_medida_stock: 'Láminas',
-            stock_actual: 100,
-            punto_reorden: 20
-        }
-    })
-
-    const soldadura = await prisma.materiaPrima.create({
-        data: {
-            sku_mp: 'MP-SOL-001',
-            nombre_mp: 'Electrodo 6013 1/8',
-            categoria_mp: 'Consumible',
-            unidad_medida_stock: 'Kg',
-            stock_actual: 50,
-            punto_reorden: 10
-        }
-    })
-
-    // Product
-    const puerta = await prisma.producto.create({
-        data: {
-            sku_producto: 'PT-STD-001',
-            nombre_producto: 'Puerta Metálica Standard 2.10x0.90',
-            descripcion: 'Puerta de seguridad básica',
-            rutas: {
-                create: [
-                    { no_operacion: 10, nombre_operacion: 'Corte', centro_trabajo: 'Guillotina' },
-                    { no_operacion: 20, nombre_operacion: 'Doblado', centro_trabajo: 'Dobladora' },
-                    { no_operacion: 30, nombre_operacion: 'Soldadura', centro_trabajo: 'Estación Soldadura 1' },
-                    { no_operacion: 40, nombre_operacion: 'Acabado', centro_trabajo: 'Pintura' },
-                ]
-            },
-            listaMateriales: {
-                create: [
-                    { materia_prima_id: lamina.id, cantidad_requerida: 2 }, // 2 sheets per door? Just demo.
-                    { materia_prima_id: soldadura.id, cantidad_requerida: 0.5 },
-                ]
-            }
-        }
-    })
-
-    console.log({ admin, supervisor, operario, puerta })
+    console.log('Seeding finished:', { admin, supervisor, operario });
 }
 
 main()
