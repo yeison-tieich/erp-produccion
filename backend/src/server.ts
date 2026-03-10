@@ -18,10 +18,10 @@ import specialProjectsRoutes from './routes/specialProjects.routes';
 dotenv.config();
 
 if (!process.env.JWT_SECRET) {
-  console.error('CRITICAL ERROR: JWT_SECRET is not defined in environment variables');
+  console.warn('⚠️ WARNING: JWT_SECRET is not defined. Using temporary fallback. PLEASE SET THIS IN RAILWAY VARIABLES.');
 }
 if (!process.env.DATABASE_URL) {
-  console.error('CRITICAL ERROR: DATABASE_URL is not defined in environment variables');
+  console.error('❌ CRITICAL ERROR: DATABASE_URL is not defined. The app will fail to connect to the database.');
 }
 
 const app = express();
