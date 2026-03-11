@@ -47,12 +47,6 @@ La aplicación abrirá en `http://localhost:5173`.
 
 El sistema viene precargado con los siguientes usuarios:
 
-| Rol | Email | Contraseña |
-| --- | --- | --- |
-| **Administrador** | admin@controlmt.com | 123456 |
-| **Supervisor** | supervisor@controlmt.com | 123456 |
-| **Operario** | operario@controlmt.com | 123456 |
-
 ## Funcionalidades Principales
 
 - **Admin/Supervisor**:
