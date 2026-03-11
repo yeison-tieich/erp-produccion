@@ -127,24 +127,27 @@ export const adjustProductStock = async (req: Request, res: Response) => {
     }
 };
 
+import { uploadToCloudinary } from '../utils/cloudinary';
+
 export const uploadProductImage = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
-        // multer will have written the file to disk
         const file = (req as any).file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        // Save public path to DB as /images/<filename>
-        const publicPath = `/images/${file.filename}`;
+        // Upload to Cloudinary
+        const result = await uploadToCloudinary(file.buffer);
+        const imageUrl = result.secure_url;
 
         const product = await prisma.producto.update({
             where: { id: Number(id) },
-            data: { imagen_url: publicPath }
+            data: { imagen_url: imageUrl }
         });
 
         res.json(product);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error uploading image' });
+        console.error('uploadProductImage error:', error);
+        res.status(500).json({ error: 'Error uploading image to Cloudinary' });
     }
 };
+
