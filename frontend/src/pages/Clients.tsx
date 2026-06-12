@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { API_URL } from '../api';
+import { API_URL, BASE_URL } from '../api';
 import {
     Users, Search, Package, ArrowRight,
     Box, User, MapPin, ExternalLink, X, Edit3, Phone, Star
@@ -223,7 +223,7 @@ export const Clients = () => {
                                         <div key={p.id} className="bg-white border border-gray-100 rounded-3xl p-4 flex flex-col gap-4 shadow-sm hover:border-brand-200 transition">
                                             <div className="aspect-video bg-gray-50 rounded-2xl overflow-hidden relative">
                                                 {p.imagen_url ? (
-                                                    <img src={p.imagen_url} className="w-full h-full object-cover" />
+                                                    <img src={p.imagen_url.startsWith('http') ? p.imagen_url : `${BASE_URL}${p.imagen_url}`} className="w-full h-full object-cover" />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center"><Box className="text-gray-200 w-10 h-10" /></div>
                                                 )}
@@ -335,8 +335,8 @@ export const Clients = () => {
                                 >
                                     <Star
                                         className={`w-12 h-12 cursor-pointer transition-all ${star <= tempRating
-                                                ? 'fill-yellow-400 text-yellow-400'
-                                                : 'text-gray-300 hover:text-yellow-300'
+                                            ? 'fill-yellow-400 text-yellow-400'
+                                            : 'text-gray-300 hover:text-yellow-300'
                                             }`}
                                     />
                                 </button>

@@ -13,7 +13,13 @@ export const createOrder = async (req: Request, res: Response) => {
         prioridad,
         descripcion_proyecto,
         materiales_proyecto,
-        tareas_personalizadas
+        tareas_personalizadas,
+        piezas_lamina,
+        precio_venta,
+        po_pdf_url,
+        imagen_url,
+        acabado,
+        ancho_tira
     } = req.body;
 
     console.log('[createOrder] Called with:', { tipo_orden, producto_id, cantidad_fabricar });
@@ -86,7 +92,14 @@ export const createOrder = async (req: Request, res: Response) => {
                     fecha_entrega_req: fecha_entrega_req ? new Date(fecha_entrega_req) : null,
                     prioridad: prioridad || 'ESTANDAR',
                     descripcion_proyecto: tipo_orden === 'PROYECTO_ESPECIAL' ? descripcion_proyecto : null,
-                    estado_ot: 'Pendiente'
+                    estado_ot: 'Pendiente',
+                    // Manual or inherited fields
+                    imagen_url: imagen_url || null,
+                    acabado: acabado || null,
+                    ancho_tira: ancho_tira ? Number(ancho_tira) : null,
+                    piezas_lamina: piezas_lamina || null,
+                    precio_venta: precio_venta ? Number(precio_venta) : 0,
+                    po_pdf_url: po_pdf_url || null
                 }
             });
 
@@ -103,16 +116,27 @@ export const createOrder = async (req: Request, res: Response) => {
                     }
                 });
                 if (!producto) throw new Error("Producto no encontrado");
+                
+                // Inherit fields from product if not manually provided
+                await tx.ordenTrabajo.update({
+                    where: { id: newOrder.id },
+                    data: {
+                        acabado: newOrder.acabado || producto.acabado,
+                        ancho_tira: newOrder.ancho_tira || producto.ancho_tira,
+                        piezas_lamina: newOrder.piezas_lamina || producto.piezas_lamina_4x8, // Defaulting to 4x8 for now or could be dynamic
+                        imagen_url: newOrder.imagen_url || producto.imagen_url,
+                        precio_venta: precio_venta ? Number(precio_venta) : producto.precio_venta
+                    }
+                });
 
-                // b) Crear solo la primera tarea de la ruta del producto si existe
+                // b) Crear todas las tareas de la ruta del producto
                 if (producto.rutas.length > 0) {
-                    const primeraRuta = producto.rutas[0];
-                    await tx.tareaProduccion.create({
-                        data: {
+                    await tx.tareaProduccion.createMany({
+                        data: producto.rutas.map(ruta => ({
                             orden_trabajo_id: newOrder.id,
-                            ruta_fabricacion_id: primeraRuta.id,
+                            ruta_fabricacion_id: ruta.id,
                             estado_tarea: 'Pendiente'
-                        }
+                        }))
                     });
                 }
 
@@ -146,13 +170,14 @@ export const createOrder = async (req: Request, res: Response) => {
                         where: { id: item.materia_prima_id },
                         data: { stock_reservado: { increment: cantidadADescontar } }
                     });
-                    // Registrar movimiento de inventario tipo 'Reserva OT'
+                    // Registrar movimiento de inventario tipo 'En proceso'
                     await tx.movimientoInventarioMP.create({
                         data: {
                             materia_prima_id: item.materia_prima_id,
-                            tipo_movimiento: 'Reserva OT',
+                            tipo_movimiento: 'En proceso',
                             cantidad: cantidadADescontar,
-                            referencia_id: `OT-${numero_ot}`
+                            referencia_id: `OT-${numero_ot}`,
+                            orden_trabajo_id: newOrder.id
                         }
                     });
                 }
@@ -226,7 +251,9 @@ export const getOrders = async (req: Request, res: Response) => {
                 producto: {
                     include: { cliente: true }
                 },
-                tareas: true
+                tareas: {
+                    include: { rutaFabricacion: true }
+                }
             },
             orderBy: { id: 'desc' }
         });
@@ -247,7 +274,10 @@ export const getOrderDetails = async (req: Request, res: Response) => {
                     include: {
                         cliente: true,
                         listaMateriales: { include: { materiaPrima: true } },
-                        rutas: true
+                        rutas: {
+                            where: { activo: true },
+                            orderBy: { no_operacion: 'asc' }
+                        }
                     }
                 },
                 tareas: {
@@ -274,20 +304,36 @@ export const getOrderDetails = async (req: Request, res: Response) => {
 
 export const updateOrder = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { producto_id, cantidad_fabricar, cliente, fecha_entrega_req, estado_ot } = req.body;
+    const { 
+        producto_id, 
+        cantidad_fabricar, 
+        cliente, 
+        fecha_entrega_req, 
+        estado_ot,
+        acabado,
+        ancho_tira,
+        piezas_lamina,
+        precio_venta
+    } = req.body;
+
     try {
         const order = await prisma.ordenTrabajo.update({
             where: { id: Number(id) },
             data: {
-                producto_id,
-                cantidad_fabricar,
+                producto_id: producto_id ? Number(producto_id) : undefined,
+                cantidad_fabricar: cantidad_fabricar ? Number(cantidad_fabricar) : undefined,
                 cliente,
-                fecha_entrega_req: new Date(fecha_entrega_req),
-                estado_ot
+                fecha_entrega_req: fecha_entrega_req ? new Date(fecha_entrega_req) : undefined,
+                estado_ot,
+                acabado,
+                ancho_tira: ancho_tira ? Number(ancho_tira) : undefined,
+                piezas_lamina,
+                precio_venta: precio_venta !== undefined ? Number(precio_venta) : undefined
             }
         });
         res.json(order);
     } catch (error) {
+        console.error('updateOrder error:', error);
         res.status(500).json({ error: 'Error updating order' });
     }
 };
@@ -311,7 +357,7 @@ export const duplicateOrder = async (req: Request, res: Response) => {
     try {
         const original = await prisma.ordenTrabajo.findUnique({
             where: { id: Number(id) },
-            include: { producto: { include: { rutas: true } } }
+            include: { producto: { include: { rutas: { where: { activo: true } } } } }
         });
         if (!original) return res.status(404).json({ error: 'Order not found' });
 
@@ -324,7 +370,12 @@ export const duplicateOrder = async (req: Request, res: Response) => {
                 cliente: original.cliente,
                 orden_compra_cliente: original.orden_compra_cliente,
                 fecha_entrega_req: original.fecha_entrega_req,
-                estado_ot: 'Pendiente'
+                estado_ot: 'Pendiente',
+                acabado: original.acabado,
+                ancho_tira: original.ancho_tira,
+                piezas_lamina: original.piezas_lamina,
+                imagen_url: original.imagen_url,
+                precio_venta: original.precio_venta
             }
         });
 
@@ -363,7 +414,7 @@ export const deleteOrder = async (req: Request, res: Response) => {
             const reservationMovements = await tx.movimientoInventarioMP.findMany({
                 where: {
                     referencia_id: order.numero_ot,
-                    tipo_movimiento: 'Reserva OT',
+                    tipo_movimiento: 'En proceso',
                 },
             });
 
@@ -445,3 +496,23 @@ export const addOperationToOrder = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error adding operation' });
     }
 }
+
+export const uploadOrderImage = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const file = (req as any).file;
+        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const imageUrl = `/uploads/orders/${file.filename}`;
+
+        const order = await prisma.ordenTrabajo.update({
+            where: { id: Number(id) },
+            data: { imagen_url: imageUrl }
+        });
+
+        res.json(order);
+    } catch (error) {
+        console.error('uploadOrderImage error:', error);
+        res.status(500).json({ error: 'Error uploading image to local storage' });
+    }
+};

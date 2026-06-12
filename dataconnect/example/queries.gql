@@ -1,0 +1,51 @@
+query ListAllProjects @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  projects {
+    id
+    name
+    description
+    status
+    dueDate
+    owner {
+      username
+      email
+    }
+  }
+}
+
+mutation CreateNewTask($title: String!, $status: String!, $projectId: UUID!, $assigneeId: UUID) @auth(level: USER) {
+  task_insert(data: {
+    title: $title,
+    status: $status,
+    projectId: $projectId,
+    assigneeId: $assigneeId,
+    createdAt_expr: "request.time"
+  }) {
+    id
+  }
+}
+
+query GetMyTasks @auth(level: USER) {
+  tasks(where: {assignee: {id_expr: "auth.uid"}}) {
+    id
+    title
+    status
+    project {
+      name
+    }
+    assignee {
+      username
+    }
+  }
+}
+
+mutation AddUserToProject($projectId: UUID!, $userId: UUID!, $role: String!) @auth(level: USER) {
+  projectMembership_upsert(data: {
+    projectId: $projectId,
+    userId: $userId,
+    role: $role,
+    assignedAt_expr: "request.time"
+  }) {
+    userId
+    projectId
+  }
+}

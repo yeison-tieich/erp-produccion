@@ -1,0 +1,58 @@
+mutation SeedData @transaction @auth(level: ADMIN, insecureReason: "Seed data mutations should only be callable by administrators") {
+  user1: user_insert(data: {
+    id: "a1a1a1a1-b2b2-c3c3-d4d4-e5e5e5e5e5e5",
+    username: "johndoe",
+    email: "john.doe@example.com",
+    passwordHash: "hashedpassword1",
+    createdAt: "2023-01-01T10:00:00Z",
+    firstName: "John",
+    lastName: "Doe"
+  })
+  user2: user_insert(data: {
+    id: "b2b2b2b2-c3c3-d4d4-e5e5-f6f6f6f6f6f6",
+    username: janedoe",
+    email: "jane.doe@example.com",
+    passwordHash: "hashedpassword2",
+    createdAt: "2023-01-02T11:00:00Z",
+    firstName: "Jane",
+    lastName: "Doe"
+  })
+  project1: project_insert(data: {
+    id: "c3c3c3c3-d4d4-e5e5-f6f6-a7a7a7a7a7a7",
+    name: "Website Redesign",
+    description: "Redesign the company website for better user experience.",
+    createdAt: "2023-01-05T09:30:00Z",
+    dueDate: "2023-03-31",
+    status: "In Progress",
+    ownerId: "a1a1a1a1-b2b2-c3c3-d4d4-e5e5e5e5e5e5"
+  })
+  project2: project_insert(data: {
+    id: "d4d4d4d4-e5e5-f6f6-a7a7-b8b8b8b8b8b8",
+    name: "Mobile App Development",
+    description: "Develop a new mobile application for iOS and Android.",
+    createdAt: "2023-01-10T14:00:00Z",
+    dueDate: "2023-06-30",
+    status: "Pending",
+    ownerId: "b2b2b2b2-c3c3-d4d4-e5e5-f6f6f6f6f6f6"
+  })
+  task1: task_insert(data: {
+    id: "e5e5e5e5-f6f6-a7a7-b8b8-c9c9c9c9c9c9",
+    title: "Design Homepage Mockups",
+    status: "To Do",
+    createdAt: "2023-01-06T10:00:00Z",
+    dueDate: "2023-01-20",
+    priority: "High",
+    assigneeId: "a1a1a1a1-b2b2-c3c3-d4d4-e5e5e5e5e5e5",
+    projectId: "c3c3c3c3-d4d4-e5e5-f6f6-a7a7a7a7a7a7"
+  })
+  task2: task_insert(data: {
+    id: "f6f6f6f6-a7a7-b8b8-c9c9-d0d0d0d0d0d0",
+    title: "Setup Backend API",
+    status: "To Do",
+    createdAt: "2023-01-11T12:00:00Z",
+    dueDate: "2023-02-15",
+    priority: "Medium",
+    assigneeId: "b2b2b2b2-c3c3-d4d4-e5e5-f6f6f6f6f6f6",
+    projectId: "d4d4d4d4-e5e5-f6f6-a7a7-b8b8b8b8b8b8"
+  })
+}

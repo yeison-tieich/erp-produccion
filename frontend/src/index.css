@@ -1,20 +1,91 @@
-
 @import "tailwindcss";
 
-@theme {
-  --color-brand-50: #f0f9ff;
-  --color-brand-100: #e0f2fe;
-  --color-brand-200: #bae6fd;
-  --color-brand-300: #7dd3fc;
-  --color-brand-400: #38bdf8;
-  --color-brand-500: #0ea5e9;
-  --color-brand-600: #0284c7;
-  --color-brand-700: #0369a1;
-  --color-brand-800: #075985;
-  --color-brand-900: #0c4a6e;
-  --color-brand-950: #082f49;
+:root {
+  --brand-50: #29333a;
+  --brand-100: #333b41;
+  --brand-200: #bae6fd;
+  --brand-300: #7dd3fc;
+  --brand-400: #38bdf8;
+  --brand-500: #0ea5e9;
+  --brand-600: #0284c7;
+  --brand-700: #0369a1;
+  --brand-800: #075985;
+  --brand-900: #0c4a6e;
+  --brand-950: #082f49;
+
+  /* Dynamic Theme Variables */
+  --color-surface: #ffffff;
+  --color-border: #4e5c6e;
+  --color-text: #0f172a;
 }
 
+@theme {
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-surface: var(--color-surface);
+  --color-border-custom: var(--color-border);
+  --color-text-custom: var(--color-text);
+}
+
+/* Global Background and Text */
 body {
-  @apply bg-gray-50 text-gray-900;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Smart Overrides: Target BACKGROUNDS and TEXT separately to preserve contrast */
+
+/* Backgrounds that should follow the 'Surface' color */
+.bg-white,
+.bg-gray-50,
+.bg-slate-50,
+.bg-slate-900,
+.bg-slate-800 {
+  background-color: var(--color-surface) !important;
+}
+
+/* Borders that should follow the 'Border' color */
+.border-gray-100,
+.border-gray-200,
+.border-slate-100,
+.border-slate-800 {
+  border-color: var(--color-border) !important;
+}
+
+/* Text that should follow the 'Text' color */
+.text-gray-900,
+.text-gray-800,
+.text-slate-900 {
+  color: var(--color-text) !important;
+}
+
+/* Secondary text */
+.text-gray-500,
+.text-gray-400,
+.text-slate-400 {
+  color: var(--color-text);
+  opacity: 0.7;
+}
+
+.dark {
+  --color-surface: #0f172a;
+  --color-border: #1e293b;
+  --color-text: #f8fafc;
+}
+
+/* Global transitions */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
 }

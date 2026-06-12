@@ -16,15 +16,32 @@ interface AuthState {
     logout: () => void;
 }
 
+const getDefaultUser = (): User => ({
+    id: 1,
+    nombre: 'Usuario de Prueba',
+    email: 'test@example.com',
+    rol: 'Administrador'
+});
+
+const getInitialUser = (): User | null => {
+    const saved = localStorage.getItem('user');
+    if (saved) return JSON.parse(saved);
+    const defaultUser = getDefaultUser();
+    localStorage.setItem('user', JSON.stringify(defaultUser));
+    return defaultUser;
+};
+
+const getInitialToken = (): string | null => {
+    const saved = localStorage.getItem('token');
+    if (saved) return saved;
+    const defaultToken = 'test-token';
+    localStorage.setItem('token', defaultToken);
+    return defaultToken;
+};
+
 export const useAuthStore = create<AuthState>((set) => ({
-    user: (() => {
-        try {
-            return JSON.parse(localStorage.getItem('user') || 'null');
-        } catch {
-            return null;
-        }
-    })(),
-    token: localStorage.getItem('token'),
+    user: getInitialUser(),
+    token: getInitialToken(),
     setAuth: (user, token) => {
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.setItem('token', token);

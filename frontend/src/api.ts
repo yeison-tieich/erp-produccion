@@ -1,3 +1,18 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-export const API_URL = `${API_BASE_URL}/api`;
-export const BASE_URL = API_BASE_URL;
+// Intentar obtener la URL del servidor desde localStorage, o usar la de por defecto
+let currentBaseUrl = localStorage.getItem('SERVER_URL') || 'http://192.168.2.26:3000';
+
+export let API_BASE_URL = currentBaseUrl;
+export let API_URL = `${currentBaseUrl}/api`;
+export let BASE_URL = currentBaseUrl;
+
+/**
+ * Actualiza la URL del servidor y recarga la página para aplicar los cambios globalmente.
+ * @param url Nueva URL base del backend
+ */
+export const updateServerUrl = (url: string) => {
+    localStorage.setItem('SERVER_URL', url);
+    API_BASE_URL = url;
+    API_URL = `${url}/api`;
+    BASE_URL = url;
+    window.location.reload();
+};

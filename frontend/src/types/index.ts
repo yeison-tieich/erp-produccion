@@ -13,10 +13,14 @@ export interface ProyectoEspecial {
   porcentaje_avance: number;
   indicador_riesgo: string;
   bloqueado: boolean;
+  foto_referencia_url?: string;
+  plano_pdf_url?: string;
   fases: FaseProyecto[];
   historial: HistorialCambios[];
   archivos: ArchivoAdjunto[];
   notas: NotaTecnica[];
+  materiales: MaterialRequeridoProyecto[];
+  piezas?: PiezaProyecto[];
   cargas_maquina: CargaMaquina[];
   createdAt: string;
   updatedAt: string;
@@ -33,6 +37,11 @@ export interface FaseProyecto {
   fecha_fin?: string;
   estado: string;
   observaciones?: string;
+  maquina_id?: number;
+  maquina?: Maquina;
+  personal_id?: number;
+  personal?: Personal;
+  costo_operacion?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,9 +89,60 @@ export interface NotaTecnica {
   contenido: string;
 }
 
+export interface MaterialRequeridoProyecto {
+  id: number;
+  proyecto_id: number;
+  descripcion: string;
+  tipo?: string;
+  cantidad: number;
+  peso_kg: number;
+  estado: string;
+  observaciones?: string;
+}
+
+export interface PiezaProyecto {
+  id: number;
+  proyecto_id: number;
+  nombre: string;
+  cantidad: number;
+  avance_fabricacion: number;
+  requiere_montaje: boolean;
+  estado_montaje: string;
+  observaciones?: string;
+  plano_url_1?: string;
+  plano_url_2?: string;
+  tipo_material?: string;
+  largo?: number | string;
+  ancho?: number | string;
+  espesor?: number | string;
+  diametro?: number | string;
+  registros?: RegistroPieza[];
+}
+
+export interface RegistroPieza {
+  id: number;
+  pieza_id: number;
+  tipo: string;
+  fecha: string;
+  descripcion: string;
+  avance_reportado?: number;
+}
+
 export interface Usuario {
   id: number;
   nombre: string;
   email: string;
   rol: string;
+}
+
+export interface Personal {
+  id: number;
+  nombre: string;
+  cedula: string;
+  cargo: string;
+  kpi_puntualidad?: number;
+  salario?: number;
+  calificacion?: string;
+  eficiencia?: number;
+  productividad?: number;
 }

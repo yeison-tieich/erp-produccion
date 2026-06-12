@@ -41,7 +41,32 @@ async function main() {
         },
     })
 
-    console.log('Seeding finished:', { admin, supervisor, operario });
+    const pass7 = await bcrypt.hash('MT2026*', 10)
+
+    const newUsers = [
+        { email: 'gerencia@controlmt.com', nombre: 'Gerencia General', rol: 'Gerencia' },
+        { email: 'produccion@controlmt.com', nombre: 'Director Producción', rol: 'Producción' },
+        { email: 'almacen@controlmt.com', nombre: 'Jefe Almacén', rol: 'Almacén' },
+        { email: 'contabilidad@controlmt.com', nombre: 'Contabilidad', rol: 'Contabilidad' },
+        { email: 'compras@controlmt.com', nombre: 'Compras y Suministros', rol: 'Compras' },
+        { email: 'diseno@controlmt.com', nombre: 'Diseño e Ingeniería', rol: 'Diseño' },
+        { email: 'rrhh@controlmt.com', nombre: 'Recursos Humanos', rol: 'Recursos Humanos' },
+    ]
+
+    for (const u of newUsers) {
+        await prisma.usuario.upsert({
+            where: { email: u.email },
+            update: {},
+            create: {
+                nombre: u.nombre,
+                email: u.email,
+                password_hash: pass7,
+                rol: u.rol,
+            },
+        })
+    }
+
+    console.log('Seeding finished:', { admin, supervisor, operario, newUsersCount: newUsers.length });
 }
 
 main()

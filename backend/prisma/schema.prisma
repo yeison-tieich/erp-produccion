@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -17,6 +17,7 @@ model Usuario {
   password_hash String
   rol           String   // 'Administrador', 'Supervisor', 'Operario'
   historial     HistorialCambios[]
+  configuracion ConfiguracionUsuario?
 }
 
 model MateriaPrima {
@@ -28,10 +29,21 @@ model MateriaPrima {
   unidad_medida_stock String   // 'Kg', 'Metros', 'Unidades', 'Láminas'
   stock_actual        Decimal  @default(0)
   stock_reservado     Decimal  @default(0)
+  devoluciones        Decimal  @default(0)
   punto_reorden       Decimal  @default(0)
+  costo_unitario      Decimal? @default(0)
+  
+  // Technical fields for weight calculation
+  espesor             Decimal? @default(0) // thickness in mm
+  ancho               Decimal? @default(0) // width in mm
+  largo               Decimal? @default(0) // length in mm
+  densidad            Decimal? @default(7.85) // density in g/cm3 (default for steel)
+  peso_unitario       Decimal? @default(0) // for profiles or items with fixed weight per unit
+
   
   listaMateriales     ListaMateriales[]
   movimientos         MovimientoInventarioMP[]
+  updatedAt           DateTime @default(now()) @updatedAt
 }
 
 model Cliente {
@@ -41,7 +53,9 @@ model Cliente {
   direccion       String?
   calificacion    Decimal? @default(0)
   productos       Producto[]
+  movimientosInventario MovimientoInventarioMP[]
 }
+
 
 model Producto {
   id              Int      @id @default(autoincrement())
@@ -64,9 +78,25 @@ model Producto {
   empaque_de          String? // EMPAQUE DE
   ubicacion           String?
   
+  plano_pdf_url      String?
+  activo             Boolean  @default(true)
+  precio_venta       Decimal? @default(0) // New: Price of finished product
+  
   listaMateriales ListaMateriales[]
   rutas           RutaFabricacion[]
   ordenes         OrdenTrabajo[]
+  pedidos         Pedido[]
+  movimientos     MovimientoProducto[]
+}
+
+model MovimientoProducto {
+  id              Int      @id @default(autoincrement())
+  producto_id     Int
+  producto        Producto @relation(fields: [producto_id], references: [id])
+  fecha           DateTime @default(now())
+  tipo_movimiento String   // 'entrada', 'salida', 'ajuste'
+  cantidad        Int
+  referencia      String?  // e.g., 'OT-123', 'Ajuste manual'
 }
 
 model ListaMateriales {
@@ -86,8 +116,10 @@ model RutaFabricacion {
   nombre_operacion        String
   centro_trabajo          String
   piezas_por_hora_estimado Int?
+  tiempo_estandar         Decimal? // Added for standard time per operation
   
   tareas                  TareaProduccion[]
+  activo                  Boolean  @default(true)
 }
 
 model Personal {
@@ -100,10 +132,14 @@ model Personal {
   calificacion    String?
   eficiencia      Float?
   productividad   Float?
+  area            String   @default("")
+  activo          Boolean  @default(true)
   
   tareas          TareaProduccion[]
   registrosTiempo RegistroTiempoLaboral[]
   dotaciones      DotacionEPP[]
+  fasesProyecto   FaseProyecto[]
+  prestamosHerramientas PrestamoHerramienta[]
 }
 
 model RegistroTiempoLaboral {
@@ -113,8 +149,13 @@ model RegistroTiempoLaboral {
   tipo            String   // 'Hora Extra', 'Permiso', 'Incapacidad'
   fecha           DateTime
   horas           Float?    @default(0)
+  horas_diurnas   Float?    @default(0)
+  horas_nocturnas Float?    @default(0)
+  horas_festivas  Float?    @default(0)
+  costo_total     Decimal?  @default(0)
   motivo          String?
   aprobado        Boolean  @default(false)
+  pagado          Boolean  @default(false)
   fecha_creacion  DateTime @default(now())
 }
 
@@ -149,8 +190,16 @@ model OrdenTrabajo {
   prioridad             String    @default("ESTANDAR") // 'URGENTE', 'ALTA', 'ESTANDAR', 'BAJA'
   estado_ot             String    @default("Pendiente") // 'Pendiente', 'En Progreso', 'Completada', 'Cancelada'
   
+  // Inherited fields from Product for quick access and history
+  acabado               String?
+  ancho_tira            Decimal?
+  piezas_lamina         String?
+  imagen_url            String?    // Image of the piece (inherited or uploaded)
+  po_pdf_url            String?    // URL to the original PO PDF
+  
   costo_total_estimado  Decimal?  @default(0)
   costo_total_real      Decimal?  @default(0)
+  precio_venta          Decimal?  @default(0) // New: Final price for this specific order
   
   fecha_inicio_real     DateTime?
   fecha_fin_real        DateTime?
@@ -159,6 +208,10 @@ model OrdenTrabajo {
   tareas                TareaProduccion[]
   materialesProyecto    MaterialProyecto[]  // Para proyectos especiales
   movimientosInventario MovimientoInventarioMP[]
+
+  pedido_id             Int?
+  pedido                Pedido?   @relation(fields: [pedido_id], references: [id])
+  updatedAt             DateTime  @default(now()) @updatedAt
 }
 
 model TareaProduccion {
@@ -190,6 +243,7 @@ model TareaProduccion {
   costo_estimado      Decimal?        @default(0)
   costo_real          Decimal?        @default(0)
   duracion_real_min   Int?            @default(0)
+  updatedAt           DateTime @default(now()) @updatedAt
 }
 
 model MovimientoInventarioMP {
@@ -202,24 +256,137 @@ model MovimientoInventarioMP {
   referencia_id   String?
   orden_trabajo_id Int?
   ordenTrabajo    OrdenTrabajo? @relation(fields: [orden_trabajo_id], references: [id])
+  
+  // New fields for assignment and remission
+  imagen_remision_url String?
+  cliente_id         Int?
+  cliente            Cliente? @relation(fields: [cliente_id], references: [id])
+  updatedAt          DateTime @default(now()) @updatedAt
 }
+
 
 model Maquina {
   id                    Int      @id @default(autoincrement())
   codigo                String   @unique
-  descripcion           String
+  nombre                String?
+  area_produccion       String?
+  tipo                  String?   // 'CNC', 'Troqueladora', 'Soldadura', etc.
+  marca                 String?
+  modelo                String?
+  serial                String?
+  fecha_compra          DateTime?
+  estado                String   @default("Operativa") // 'Operativa', 'En mantenimiento', 'Fuera de servicio'
+  ubicacion             String?
+  responsable           String?
+  hoja_vida_url        String?
+  foto_url              String?
+  
+  // Existing technical fields
   adquirida_en          String?
-  estado                String   // 'Activo', 'Inactivo', 'Mantenimiento'
   observaciones         String?
   motor_hp              String?
   consumo_mes           String?
   capacidad_trabajo     String?
   horas_maquina_mes     String?
-  foto_url              String?
   horas_disponibles_semana Decimal? @default(40)
   
   tareas                TareaProduccion[]
   carga                 CargaMaquina[]
+  mantenimientos        MantenimientoPreventivo[]
+  planesMantenimiento   PlanMantenimiento[]
+  consumibles           ConsumibleMaquina[]
+  fasesProyecto         FaseProyecto[]
+  reportesFallas        ReporteFalla[]
+  ordenesMantenimiento  OrdenMantenimiento[]
+}
+
+model PlanMantenimiento {
+  id                Int      @id @default(autoincrement())
+  maquina           Maquina  @relation(fields: [maquina_id], references: [id])
+  maquina_id        Int
+  tarea             String
+  tipo_mtto         String   @default("Lubricación") // 'Lubricación', 'Limpieza', 'Calibración', etc.
+  frecuencia        String   @default("Mensual") // 'Diario', 'Semanal', 'Mensual', 'Horas Uso'
+  frecuencia_dias   Int      @default(30)
+  responsable       String
+  checklist         String?  // JSON string or comma-separated list
+  tiempo_estimado_min Int?
+  ultima_ejecucion  DateTime?
+  proxima_fecha     DateTime?
+  
+  createdAt         DateTime @default(now())
+  ejecuciones       MantenimientoPreventivo[]
+}
+
+model MantenimientoPreventivo {
+  id                Int      @id @default(autoincrement())
+  maquina           Maquina  @relation(fields: [maquina_id], references: [id])
+  maquina_id        Int
+  plan              PlanMantenimiento? @relation(fields: [plan_id], references: [id])
+  plan_id           Int?
+  fecha_programada  DateTime
+  fecha_realizada   DateTime?
+  tecnico_responsable String?
+  checklist_completado Boolean @default(false)
+  estado            String   @default("Programado") // 'Programado', 'Realizado', 'Vencido', 'Falla detectada'
+  observaciones     String?
+  foto_url          String?
+  costo_mantenimiento Decimal? @default(0)
+
+  createdAt         DateTime @default(now())
+  fotos             FotoMantenimiento[]
+}
+
+model FotoMantenimiento {
+  id                Int                     @id @default(autoincrement())
+  mantenimiento_id  Int
+  mantenimiento     MantenimientoPreventivo @relation(fields: [mantenimiento_id], references: [id])
+  url               String
+}
+
+model ReporteFalla {
+  id                Int      @id @default(autoincrement())
+  maquina           Maquina  @relation(fields: [maquina_id], references: [id])
+  maquina_id        Int
+  fecha_reporte     DateTime @default(now())
+  reportado_por     String
+  descripcion       String
+  prioridad         String   @default("Media") // 'Alta', 'Media', 'Baja'
+  estado            String   @default("Pendiente") // 'Pendiente', 'En proceso', 'Cerrado'
+  
+  ordenesMantenimiento OrdenMantenimiento[]
+}
+
+model OrdenMantenimiento {
+  id                Int      @id @default(autoincrement())
+  maquina           Maquina  @relation(fields: [maquina_id], references: [id])
+  maquina_id        Int
+  falla             ReporteFalla? @relation(fields: [falla_id], references: [id])
+  falla_id          Int?
+  tipo              String   // 'Preventivo', 'Correctivo'
+  fecha_inicio      DateTime @default(now())
+  fecha_fin         DateTime?
+  tecnico           String
+  actividades       String?
+  repuestos         String?
+  tiempo_muerto_hrs Float?    @default(0)
+  costo             Decimal? @default(0)
+  estado            String   @default("Abierta") // 'Abierta', 'En proceso', 'Cerrada'
+
+  createdAt         DateTime @default(now())
+}
+
+model ConsumibleMaquina {
+  id                Int      @id @default(autoincrement())
+  maquina           Maquina  @relation(fields: [maquina_id], references: [id])
+  maquina_id        Int
+  nombre            String
+  vida_util_dias    Int?
+  cantidad_instalada Decimal?
+  fecha_ultimo_cambio DateTime?
+  fecha_proximo_cambio DateTime?
+
+  createdAt         DateTime @default(now())
 }
 
 // Materiales y partes para proyectos especiales
@@ -241,6 +408,8 @@ model OperacionCatalog {
   nombre_operacion String
   centro_trabajo   String?
   orden            Int     @default(0)
+  costo_hora       Decimal? @default(0)
+  categoria_material_sugerido String? // 'Lámina', 'Perfil', etc.
 }
 
 model ProyectoEspecial {
@@ -259,11 +428,17 @@ model ProyectoEspecial {
   indicador_riesgo      String   @default("Bajo") // 'Bajo', 'Medio', 'Alto'
   bloqueado             Boolean  @default(false)
   
+  // Novedades para Proyectos Especiales
+  foto_referencia_url   String?
+  plano_pdf_url         String?
+  
   fases                 FaseProyecto[]
   historial             HistorialCambios[]
   archivos              ArchivoAdjunto[]
   notas                 NotaTecnica[]
+  materiales            MaterialRequeridoProyecto[]
   cargas_maquina        CargaMaquina[]
+  piezas                PiezaProyecto[]
   
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -281,6 +456,13 @@ model FaseProyecto {
   fecha_fin             DateTime?
   estado                String   @default("Pendiente") // 'Pendiente', 'En Progreso', 'Completada', 'Cerrada'
   observaciones         String?
+  
+  // Novedades para controles de cada proceso (fase)
+  maquina_id            Int?
+  maquina               Maquina? @relation(fields: [maquina_id], references: [id])
+  personal_id           Int?
+  personal              Personal? @relation(fields: [personal_id], references: [id])
+  costo_operacion       Decimal? @default(0)
   
   // Para evidencias (fotos, archivos) se podría agregar un modelo relacionado
   
@@ -329,6 +511,51 @@ model NotaTecnica {
   contenido       String
 }
 
+model MaterialRequeridoProyecto {
+  id              Int       @id @default(autoincrement())
+  proyecto        ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id     Int
+  descripcion     String
+  tipo            String?   // 'Lámina', 'Perfil', 'Tornillería', etc.
+  cantidad        Decimal   @default(1)
+  peso_kg         Decimal   @default(0)
+  estado          String    @default("Pendiente") // 'Pendiente', 'Pedido', 'En Almacén', 'Entregado'
+  observaciones   String?
+}
+
+model PiezaProyecto {
+  id                Int              @id @default(autoincrement())
+  proyecto          ProyectoEspecial @relation(fields: [proyecto_id], references: [id])
+  proyecto_id       Int
+  nombre            String
+  cantidad          Int              @default(1)
+  avance_fabricacion Float           @default(0)
+  requiere_montaje   Boolean         @default(false)
+  estado_montaje     String          @default("Pendiente")
+  observaciones      String?
+  plano_url_1        String?
+  plano_url_2        String?
+
+  // Material fields
+  tipo_material     String?
+  largo             Decimal?
+  ancho             Decimal?
+  espesor           Decimal?
+  diametro          Decimal?
+  
+  registros         RegistroPieza[]
+}
+
+model RegistroPieza {
+  id              Int           @id @default(autoincrement())
+  pieza           PiezaProyecto @relation(fields: [pieza_id], references: [id])
+  pieza_id        Int
+  tipo            String        // 'MONTAJE', 'FABRICACION'
+  fecha           DateTime      @default(now())
+  descripcion     String
+  avance_reportado Float?
+}
+
 model Alerta {
   id              Int       @id @default(autoincrement())
   tipo            String    // 'SOBRECARGA_MAQUINA', 'PROYECTO_DETENIDO', 'HORAS_EXCEDIDAS', etc.
@@ -342,4 +569,116 @@ model Alerta {
 model Configuracion {
   id                      Int     @id @default(autoincrement())
   max_proyectos_activos   Int     @default(10)
+  
+  // Datos de la empresa
+  nombre_empresa          String?   @default("MI EMPRESA SAS")
+  nit_empresa             String?   @default("000.000.000-0")
+  direccion_empresa       String?
+  telefono_empresa        String?
+  email_empresa           String?
+  
+  // Variables técnicas globales
+  densidad_acero_default  Decimal?  @default(7.85)
+  horas_turno_default     Decimal?  @default(8)
+  
+  // IA Configuration
+  openrouter_api_key      String?
+  openrouter_model        String?   @default("google/gemma-3-27b-it:free")
+  
+  // Configuración de Unidades
+  unidad_longitud         String    @default("mm") // mm, cm, m, pulgadas
+  unidad_peso             String    @default("kg") // g, kg, lb
+  unidad_volumen          String    @default("litros") // litros, cm3
+  
+  // Configuración de Decimales
+  decimales_produccion    Int       @default(2)
+  decimales_costos        Int       @default(2)
+  decimales_medidas       Int       @default(2)
+  
+  // Configuración de Alarmas (Umbrales)
+  umbral_stock_minimo     Decimal   @default(10)
+  dias_retraso_alerta     Int       @default(1)
+  frecuencia_alertas      String    @default("Inmediata") // Inmediata, Diaria, Semanal
+  
+  // Activación de Alarmas
+  alarma_retraso_ot       Boolean   @default(true)
+  alarma_bajo_stock       Boolean   @default(true)
+  alarma_mantenimiento    Boolean   @default(true)
+  alarma_fases_proyecto   Boolean   @default(true)
+
+  updatedAt               DateTime  @updatedAt
+}
+
+model ConfiguracionUsuario {
+  id                  Int     @id @default(autoincrement())
+  usuario_id          Int     @unique
+  usuario             Usuario @relation(fields: [usuario_id], references: [id])
+  
+  // Interfaz
+  tema                String  @default("Automático") // Claro, Oscuro, Automático
+  color_primario      String  @default("#2563eb")
+  color_secundario    String  @default("#475569")
+  color_superficie    String  @default("#ffffff")
+  color_borde         String  @default("#e2e8f0")
+  color_texto         String  @default("#0f172a")
+  
+  // Notificaciones
+  notificaciones_app  Boolean @default(true)
+  notificaciones_email Boolean @default(false)
+}
+
+model HerramientaConsumible {
+  id                  Int      @id @default(autoincrement())
+  codigo              String?  @unique
+  nombre              String
+  tipo                String   // 'HERRAMIENTA', 'CONSUMIBLE'
+  cantidad_total      Int      @default(0)
+  cantidad_disponible Int      @default(0)
+  estado              String   @default("DISPONIBLE") // 'DISPONIBLE', 'EN USO', 'MANTENIMIENTO', 'BAJA', 'PARCIALMENTE EN USO'
+  ubicacion           String?
+  observaciones       String?
+  
+  prestamos           PrestamoHerramienta[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model PrestamoHerramienta {
+  id                  Int      @id @default(autoincrement())
+  herramienta         HerramientaConsumible @relation(fields: [herramienta_id], references: [id])
+  herramienta_id      Int
+  personal            Personal @relation(fields: [personal_id], references: [id])
+  personal_id         Int
+  fecha_prestamo      DateTime @default(now())
+  fecha_devolucion    DateTime?
+  cantidad            Int      @default(1)
+  estado              String   @default("ACTIVO") // 'ACTIVO', 'DEVUELTO'
+  observaciones       String?
+}
+
+model Pedido {
+  id                    Int      @id @default(autoincrement())
+  cliente               String?
+  orden_compra          String?
+  fecha_emision         DateTime?
+  codigo                String?
+  referencia            String?
+  posicion              String?
+  descripcion           String?
+  cantidad              Int?      @default(0)
+  cantidad_fabricada    Int?      @default(0)
+  cantidad_en_inventario Int?      @default(0)
+  cantidad_despachada   Int?      @default(0)
+  saldo_pendiente       Int?      @default(0)
+  fecha_entrega         String?
+  estado                String?   @default("PENDIENTE")
+  precio_unitario       Decimal?  @default(0)
+  valor_total           Decimal?  @default(0)
+  
+  producto_id           Int?
+  producto              Producto? @relation(fields: [producto_id], references: [id])
+  ordenes               OrdenTrabajo[]
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
