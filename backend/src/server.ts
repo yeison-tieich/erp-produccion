@@ -35,14 +35,29 @@ if (!process.env.DATABASE_URL) {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+const allowedOrigins = [
+  'https://erp-produccion-dun.vercel.app',
+  'http://localhost:5173',
+  'http://192.168.2.26:5173',
+  'capacitor://192.168.2.26:5173',
+  'http://localhost'
+];
+
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(cors({
-  origin: [
-    'https://erp-produccion-dun.vercel.app',
-    'http://localhost:5173',
-    'http://192.168.2.26:5173',
-    'capacitor://192.168.2.26:5173',
-    'http://localhost'
-  ],
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    // Para simplificar el despliegue en Vercel (URLs dinámicas), podemos permitir todo o chequear la lista
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production' || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
