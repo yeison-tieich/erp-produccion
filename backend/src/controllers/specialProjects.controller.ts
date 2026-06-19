@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 const prisma = new PrismaClient();
 
@@ -65,10 +66,12 @@ export const createProyecto = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['foto_referencia'] && files['foto_referencia'].length > 0) {
-        foto_referencia_url = `/uploads/special-projects/${files['foto_referencia'][0].filename}`;
+        const result = await uploadToCloudinary(files['foto_referencia'][0].buffer, 'special-projects');
+        foto_referencia_url = result.secure_url;
       }
       if (files['plano_pdf'] && files['plano_pdf'].length > 0) {
-        plano_pdf_url = `/uploads/special-projects/${files['plano_pdf'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_pdf'][0].buffer, 'special-projects');
+        plano_pdf_url = result.secure_url;
       }
     }
 
@@ -190,10 +193,12 @@ export const updateProyecto = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['foto_referencia'] && files['foto_referencia'].length > 0) {
-        prismaData.foto_referencia_url = `/uploads/special-projects/${files['foto_referencia'][0].filename}`;
+        const result = await uploadToCloudinary(files['foto_referencia'][0].buffer, 'special-projects');
+        prismaData.foto_referencia_url = result.secure_url;
       }
       if (files['plano_pdf'] && files['plano_pdf'].length > 0) {
-        prismaData.plano_pdf_url = `/uploads/special-projects/${files['plano_pdf'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_pdf'][0].buffer, 'special-projects');
+        prismaData.plano_pdf_url = result.secure_url;
       }
     }
 
@@ -512,7 +517,8 @@ export const uploadAttachment = async (req: Request, res: Response) => {
     }
 
     const file = req.file as any;
-    const url_archivo = `/uploads/special-projects/${file.filename}`;
+    const result = await uploadToCloudinary(file.buffer, 'special-projects');
+    const url_archivo = result.secure_url;
 
     const newAttachment = await prisma.archivoAdjunto.create({
       data: {
@@ -564,10 +570,12 @@ export const addPiece = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['plano_1'] && files['plano_1'].length > 0) {
-        plano_url_1 = `/uploads/special-projects/${files['plano_1'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_1'][0].buffer, 'special-projects');
+        plano_url_1 = result.secure_url;
       }
       if (files['plano_2'] && files['plano_2'].length > 0) {
-        plano_url_2 = `/uploads/special-projects/${files['plano_2'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_2'][0].buffer, 'special-projects');
+        plano_url_2 = result.secure_url;
       }
     }
 
@@ -688,10 +696,12 @@ export const updatePiece = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['plano_1'] && files['plano_1'].length > 0) {
-        plano_url_1 = `/uploads/special-projects/${files['plano_1'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_1'][0].buffer, 'special-projects');
+        plano_url_1 = result.secure_url;
       }
       if (files['plano_2'] && files['plano_2'].length > 0) {
-        plano_url_2 = `/uploads/special-projects/${files['plano_2'][0].filename}`;
+        const result = await uploadToCloudinary(files['plano_2'][0].buffer, 'special-projects');
+        plano_url_2 = result.secure_url;
       }
     }
 

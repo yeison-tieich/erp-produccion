@@ -23,19 +23,7 @@ import { authenticateToken, authorizeRole } from '../middleware/auth.middleware'
 const router = Router();
 
 // Configure Multer for maintenance photos
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '../../public/images');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, 'mtto-' + uniqueSuffix + path.extname(file.originalname));
-    },
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({ storage });
 

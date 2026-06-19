@@ -4,7 +4,7 @@ import { readPOFromPDF } from '../services/documentReaderService';
 import { generateManufacturingRoute } from '../services/routeGeneratorService';
 import prisma from '../prisma';
 import path from 'path';
-import fs from 'fs';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 export const readPO = async (req: Request, res: Response) => {
     const file = (req as any).file;
@@ -13,18 +13,12 @@ export const readPO = async (req: Request, res: Response) => {
     }
 
     try {
-        const filePath = file.path;
-        const poData = await readPOFromPDF(filePath);
-        
-        // Save to JSON file as well
-        const jsonFilename = file.filename.replace(path.extname(file.filename), '.json');
-        const jsonPath = path.join(path.dirname(filePath), jsonFilename);
-        fs.writeFileSync(jsonPath, JSON.stringify(poData, null, 2));
+        const result = await uploadToCloudinary(file.buffer, 'oc');
+        const poData = await readPOFromPDF(file.buffer, file.originalname);
 
         res.json({
             po: poData,
-            file_url: `/uploads/oc/${file.filename}`,
-            json_url: `/uploads/oc/${jsonFilename}`,
+            file_url: result.secure_url,
             original_filename: file.originalname
         });
     } catch (error: any) {
@@ -40,8 +34,9 @@ export const uploadOnly = async (req: Request, res: Response) => {
     }
 
     try {
+        const result = await uploadToCloudinary(file.buffer, 'oc');
         res.json({
-            file_url: `/uploads/oc/${file.filename}`,
+            file_url: result.secure_url,
             original_filename: file.originalname
         });
     } catch (error: any) {

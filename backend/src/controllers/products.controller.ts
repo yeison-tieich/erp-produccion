@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import prisma from '../prisma';
 import path from 'path';
 import fs from 'fs';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 export const getProducts = async (req: Request, res: Response) => {
     try {
@@ -216,7 +217,8 @@ export const uploadProductImage = async (req: Request, res: Response) => {
         const file = (req as any).file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const imageUrl = `/images/${file.filename}`;
+        const result = await uploadToCloudinary(file.buffer, 'products');
+        const imageUrl = result.secure_url;
 
         const product = await prisma.producto.update({
             where: { id: Number(id) },
@@ -226,7 +228,7 @@ export const uploadProductImage = async (req: Request, res: Response) => {
         res.json(product);
     } catch (error) {
         console.error('uploadProductImage error:', error);
-        res.status(500).json({ error: 'Error uploading image to local storage' });
+        res.status(500).json({ error: 'Error uploading image to Cloudinary' });
     }
 };
 
@@ -236,7 +238,8 @@ export const uploadProductPDF = async (req: Request, res: Response) => {
         const file = (req as any).file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const pdfUrl = `/images/${file.filename}`;
+        const result = await uploadToCloudinary(file.buffer, 'products');
+        const pdfUrl = result.secure_url;
 
         const product = await prisma.producto.update({
             where: { id: Number(id) },
@@ -246,7 +249,7 @@ export const uploadProductPDF = async (req: Request, res: Response) => {
         res.json(product);
     } catch (error) {
         console.error('uploadProductPDF error:', error);
-        res.status(500).json({ error: 'Error uploading PDF to local storage' });
+        res.status(500).json({ error: 'Error uploading PDF to Cloudinary' });
     }
 };
 export const updateProductRoutes = async (req: Request, res: Response) => {

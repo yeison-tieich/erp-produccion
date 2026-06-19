@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 // --- MAQUINAS (MAESTRO) ---
 export const getMaquinas = async (req: Request, res: Response) => {
@@ -266,10 +267,14 @@ export const uploadMaintenanceImages = async (req: Request, res: Response) => {
     }
 
     try {
-        const imageRecords = files.map((file: any) => ({
-            mantenimiento_id: Number(id),
-            url: `/images/${file.filename}`
-        }));
+        const imageRecords = [];
+        for (const file of files) {
+            const result = await uploadToCloudinary(file.buffer, 'maintenance');
+            imageRecords.push({
+                mantenimiento_id: Number(id),
+                url: result.secure_url
+            });
+        }
 
         await prisma.fotoMantenimiento.createMany({
             data: imageRecords

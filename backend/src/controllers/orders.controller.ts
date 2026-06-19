@@ -1,6 +1,7 @@
 
 import { Request, Response } from 'express';
 import prisma from '../prisma';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 export const createOrder = async (req: Request, res: Response) => {
     const {
@@ -503,7 +504,8 @@ export const uploadOrderImage = async (req: Request, res: Response) => {
         const file = (req as any).file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const imageUrl = `/uploads/orders/${file.filename}`;
+        const result = await uploadToCloudinary(file.buffer, 'orders');
+        const imageUrl = result.secure_url;
 
         const order = await prisma.ordenTrabajo.update({
             where: { id: Number(id) },

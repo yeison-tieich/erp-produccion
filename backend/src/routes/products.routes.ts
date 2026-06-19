@@ -7,17 +7,7 @@ import { authenticateToken, authorizeRole } from '../middleware/auth.middleware'
 
 const router = Router();
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = 'Inventario Producto_Images/';
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'prod-' + uniqueSuffix + path.extname(file.originalname));
-    }
-});
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 

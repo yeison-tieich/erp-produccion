@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 import { getAreaFromDescription } from '../utils/machineUtils';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
 export const getMachines = async (req: Request, res: Response) => {
     try {
@@ -93,7 +94,8 @@ export const uploadMachineImage = async (req: Request, res: Response) => {
     }
 
     try {
-        const imageUrl = `/images/${req.file.filename}`;
+        const result = await uploadToCloudinary(req.file.buffer, 'machines');
+        const imageUrl = result.secure_url;
         const machine = await prisma.maquina.update({
             where: { id: Number(id) },
             data: { foto_url: imageUrl }

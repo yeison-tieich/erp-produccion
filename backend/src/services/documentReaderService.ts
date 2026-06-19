@@ -7,11 +7,11 @@ import { parsePOText, ExtractedPO } from './poParserService';
 /**
  * Extracts text from a PDF file using PdfReader, preserving the line structure based on Y coordinates.
  */
-const extractTextWithCoordinates = (filePath: string): Promise<string> => {
+const extractTextWithCoordinates = (buffer: Buffer): Promise<string> => {
     return new Promise((resolve, reject) => {
         const rows: { [key: number]: any[] } = {};
         
-        new PdfReader().parseFileItems(filePath, (err: any, item: any) => {
+        new PdfReader().parseBuffer(buffer, (err: any, item: any) => {
             if (err) {
                 return reject(err);
             } else if (!item) {
@@ -47,15 +47,11 @@ const extractTextWithCoordinates = (filePath: string): Promise<string> => {
     });
 };
 
-export const readPOFromPDF = async (filePath: string): Promise<ExtractedPO> => {
-    console.log(`[DETERMINISTIC] Iniciando extracción de: ${filePath}`);
+export const readPOFromPDF = async (buffer: Buffer, fileName: string): Promise<ExtractedPO> => {
+    console.log(`[DETERMINISTIC] Iniciando extracción de: ${fileName}`);
     
     try {
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`Archivo no encontrado: ${filePath}`);
-        }
-        
-        const text = await extractTextWithCoordinates(filePath);
+        const text = await extractTextWithCoordinates(buffer);
         
         // Log para que el usuario pueda ver en la consola lo que se detecta
         console.log('--- RECONSTRUCCIÓN DE LÍNEAS (Layout-Aware) ---');
