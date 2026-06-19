@@ -68,12 +68,13 @@ export const DashboardLayout = () => {
             ]
         },
         { icon: ClipboardList, label: 'Órdenes Trabajo', path: '/orders', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
-        { icon: Users, label: 'Control Personal', path: '/personal', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Recursos Humanos', 'Compras'] },
+        { icon: Users, label: 'Clientes', path: '/clients', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Contabilidad', 'Compras', 'Ventas'] },
+        { icon: Users, label: 'Control Personal', path: '/personal', roles: ['Administrador'] },
         { icon: Settings, label: 'Mantenimiento', path: '/maintenance', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
         { icon: Factory, label: 'Proyectos Especiales', path: '/special-projects', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Diseño', 'Contabilidad', 'Compras'] },
-        { icon: Settings, label: 'Configuraciones', path: '/settings', roles: ['Administrador', 'Gerencia', 'Contabilidad', 'Compras'] },
+        { icon: Settings, label: 'Configuraciones', path: '/settings', roles: ['Administrador'] },
 
-        { icon: Factory, label: 'Mis Tareas', path: '/tasks', roles: ['Operario', 'Gerencia', 'Producción'] },
+        { icon: Factory, label: 'Mis Tareas', path: '/tasks', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
         { icon: Users, label: 'Usuarios', path: '/users', roles: ['Administrador', 'Gerencia', 'Compras'] },
     ];
 
