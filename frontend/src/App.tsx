@@ -42,8 +42,7 @@ function App() {
     return (
         <BrowserRouter>
             <Routes>
-                {/* Bypass Login for testing */}
-                <Route path="/login" element={<Navigate to="/" replace />} />
+                <Route path="/login" element={<Login />} />
 
                 <Route element={<DashboardLayout />}>
                     {/* Admin & Supervisor Routes */}
