@@ -53,6 +53,7 @@ export const PersonalPage = () => {
     const [personal, setPersonal] = useState<Personal[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [sortBy, setSortBy] = useState<'nombre' | 'cargo' | 'horas_extras'>('nombre');
 
     // Modals
     const [showModal, setShowModal] = useState(false);
@@ -218,7 +219,20 @@ export const PersonalPage = () => {
         setShowModal(true);
     };
 
-    const filteredPersonal = personal.filter(p =>
+    const sortedPersonal = [...personal].sort((a, b) => {
+        if (sortBy === 'nombre') {
+            return a.nombre.localeCompare(b.nombre);
+        } else if (sortBy === 'cargo') {
+            return a.cargo.localeCompare(b.cargo);
+        } else if (sortBy === 'horas_extras') {
+            const aExtras = a.registrosTiempo?.filter(r => r.tipo === 'Hora Extra' && !r.pagado).reduce((acc: number, curr: any) => acc + (Number(curr.horas) || 0), 0) || 0;
+            const bExtras = b.registrosTiempo?.filter(r => r.tipo === 'Hora Extra' && !r.pagado).reduce((acc: number, curr: any) => acc + (Number(curr.horas) || 0), 0) || 0;
+            return bExtras - aExtras;
+        }
+        return 0;
+    });
+
+    const filteredPersonal = sortedPersonal.filter(p =>
         p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.cedula.includes(searchTerm) ||
         p.cargo.toLowerCase().includes(searchTerm.toLowerCase())
@@ -274,6 +288,15 @@ export const PersonalPage = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
+                <select 
+                    className="bg-white border-2 border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-600 outline-none focus:border-brand-500"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                >
+                    <option value="nombre">Ordenar por Alfabético</option>
+                    <option value="cargo">Ordenar por Cargos</option>
+                    <option value="horas_extras">Ordenar por Horas Extras</option>
+                </select>
             </div>
 
             {loading ? (

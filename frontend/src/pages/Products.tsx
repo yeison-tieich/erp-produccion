@@ -9,6 +9,49 @@ import {
 import clsx from 'clsx';
 import { API_URL, BASE_URL } from '../api';
 
+const compressImage = (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                const MAX_HEIGHT = 800;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+                    } else {
+                        resolve(file);
+                    }
+                }, 'image/jpeg', 0.8);
+            };
+            img.onerror = () => resolve(file);
+        };
+        reader.onerror = () => resolve(file);
+    });
+};
+
 interface Product {
     id: number;
     sku_producto: string;
@@ -189,8 +232,9 @@ export const Products = () => {
             const token = localStorage.getItem('token');
             // If there's a new image file selected, upload it first
             if (editData.imageFile) {
+                const compressedFile = await compressImage(editData.imageFile);
                 const form = new FormData();
-                form.append('image', editData.imageFile);
+                form.append('image', compressedFile);
                 await axios.post(`${API_URL}/products/${selectedProduct.id}/image`, form, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
@@ -546,116 +590,117 @@ export const Products = () => {
                             </div>
                             <button onClick={() => setShowCreateModal(false)} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-10">
                             <form onSubmit={handleCreateProduct} className="space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="col-span-2">
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={newProductData.nombre_producto}
-                                        onChange={e => setNewProductData({ ...newProductData, nombre_producto: e.target.value })}
-                                    />
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={newProductData.nombre_producto}
+                                            onChange={e => setNewProductData({ ...newProductData, nombre_producto: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
+                                            value={newProductData.sku_producto}
+                                            onChange={e => setNewProductData({ ...newProductData, sku_producto: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
+                                        <select
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={newProductData.cliente_id}
+                                            onChange={e => setNewProductData({ ...newProductData, cliente_id: e.target.value })}
+                                        >
+                                            <option value="">Seleccionar Cliente</option>
+                                            {clients.map(c => (
+                                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={newProductData.acabado}
+                                            onChange={e => setNewProductData({ ...newProductData, acabado: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
+                                        <input
+                                            type="number"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={newProductData.ancho_tira}
+                                            onChange={e => setNewProductData({ ...newProductData, ancho_tira: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={newProductData.medidas_pieza}
+                                            onChange={e => setNewProductData({ ...newProductData, medidas_pieza: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={newProductData.empaque_de}
+                                            onChange={e => setNewProductData({ ...newProductData, empaque_de: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
+                                        <input
+                                            type="number"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={newProductData.precio_venta}
+                                            onChange={e => setNewProductData({ ...newProductData, precio_venta: e.target.value })}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
-                                        value={newProductData.sku_producto}
-                                        onChange={e => setNewProductData({ ...newProductData, sku_producto: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
-                                    <select
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={newProductData.cliente_id}
-                                        onChange={e => setNewProductData({ ...newProductData, cliente_id: e.target.value })}
-                                    >
-                                        <option value="">Seleccionar Cliente</option>
-                                        {clients.map(c => (
-                                            <option key={c.id} value={c.id}>{c.nombre}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={newProductData.acabado}
-                                        onChange={e => setNewProductData({ ...newProductData, acabado: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
-                                    <input
-                                        type="number"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={newProductData.ancho_tira}
-                                        onChange={e => setNewProductData({ ...newProductData, ancho_tira: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={newProductData.medidas_pieza}
-                                        onChange={e => setNewProductData({ ...newProductData, medidas_pieza: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={newProductData.empaque_de}
-                                        onChange={e => setNewProductData({ ...newProductData, empaque_de: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
-                                    <input
-                                        type="number"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={newProductData.precio_venta}
-                                        onChange={e => setNewProductData({ ...newProductData, precio_venta: e.target.value })}
-                                        placeholder="0.00"
-                                    />
-                                </div>
-                            </div>
 
-                            <div className="flex gap-4 pt-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowCreateModal(false)}
-                                    className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
-                                >
-                                    CANCELAR
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
-                                >
-                                    CREAR PRODUCTO
-                                </button>
-                            </div>
-                        </form>
+                                <div className="flex gap-4 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCreateModal(false)}
+                                        className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
+                                    >
+                                        CANCELAR
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
+                                    >
+                                        CREAR PRODUCTO
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
 
             {/* Other modals here... */}
             {showDetailModal && selectedProduct && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 print:bg-white print:p-0">
-                    <style dangerouslySetInnerHTML={{__html: `
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
                         @media print {
                             body * { visibility: hidden; }
                             #printableArea, #printableArea * { visibility: visible; }
@@ -696,85 +741,85 @@ export const Products = () => {
                                         <div className="w-full h-full flex items-center justify-center"><Box className="w-24 h-24 text-gray-200" /></div>
                                     )}
                                 </div>
-                            <div className="w-full md:w-1/2 space-y-8">
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Stock Actual</span>
-                                        <span className="text-2xl font-black text-brand-600">{selectedProduct.stock_actual}</span>
+                                <div className="w-full md:w-1/2 space-y-8">
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Stock Actual</span>
+                                            <span className="text-2xl font-black text-brand-600">{selectedProduct.stock_actual}</span>
+                                        </div>
+                                        <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Precio de Venta</span>
+                                            <span className="text-2xl font-black text-green-600">${selectedProduct.precio_venta?.toLocaleString() || '0'}</span>
+                                        </div>
+                                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Ancho Tira (mm)</span>
+                                            <span className="text-lg font-bold text-gray-700">{selectedProduct.ancho_tira || 'No definida'}</span>
+                                        </div>
                                     </div>
-                                    <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
-                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Precio de Venta</span>
-                                        <span className="text-2xl font-black text-green-600">${selectedProduct.precio_venta?.toLocaleString() || '0'}</span>
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><User className="w-4 h-4" /> Cliente:</span>
+                                            <span className="font-bold">{selectedProduct.cliente?.nombre || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><MapPin className="w-4 h-4" /> Ancho Tira:</span>
+                                            <span className="font-bold">{selectedProduct.ancho_tira || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><Tag className="w-4 h-4" /> Acabado:</span>
+                                            <span className="font-bold">{selectedProduct.acabado || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><Layers className="w-4 h-4" /> Dimensiones:</span>
+                                            <span className="font-bold">{selectedProduct.medidas_pieza || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between border-b pb-2 text-blue-600">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Piezas/Hora:</span>
+                                            <span className="font-black">{selectedProduct.rutas && selectedProduct.rutas.length > 0 ? selectedProduct.rutas[0]?.piezas_por_hora_estimado : 'N/A'}</span>
+                                        </div>
                                     </div>
-                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Ancho Tira (mm)</span>
-                                        <span className="text-lg font-bold text-gray-700">{selectedProduct.ancho_tira || 'No definida'}</span>
-                                    </div>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between border-b pb-2">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><User className="w-4 h-4" /> Cliente:</span>
-                                        <span className="font-bold">{selectedProduct.cliente?.nombre || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-b pb-2">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><MapPin className="w-4 h-4" /> Ancho Tira:</span>
-                                        <span className="font-bold">{selectedProduct.ancho_tira || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-b pb-2">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><Tag className="w-4 h-4" /> Acabado:</span>
-                                        <span className="font-bold">{selectedProduct.acabado || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-b pb-2">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><Layers className="w-4 h-4" /> Dimensiones:</span>
-                                        <span className="font-bold">{selectedProduct.medidas_pieza || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-b pb-2 text-blue-600">
-                                        <span className="text-gray-500 font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Piezas/Hora:</span>
-                                        <span className="font-black">{selectedProduct.rutas && selectedProduct.rutas.length > 0 ? selectedProduct.rutas[0]?.piezas_por_hora_estimado : 'N/A'}</span>
-                                    </div>
-                                </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 flex flex-col items-center">
-                                        <span className="text-[10px] font-black text-blue-400 uppercase">Lámina 4x8</span>
-                                        <span className="text-lg font-black text-blue-700">{selectedProduct.piezas_lamina_4x8 || '-'}</span>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 flex flex-col items-center">
+                                            <span className="text-[10px] font-black text-blue-400 uppercase">Lámina 4x8</span>
+                                            <span className="text-lg font-black text-blue-700">{selectedProduct.piezas_lamina_4x8 || '-'}</span>
+                                        </div>
+                                        <div className="bg-purple-50/50 p-3 rounded-xl border border-purple-100 flex flex-col items-center">
+                                            <span className="text-[10px] font-black text-purple-400 uppercase">Lámina 2x1</span>
+                                            <span className="text-lg font-black text-purple-700">{selectedProduct.piezas_lamina_2x1 || '-'}</span>
+                                        </div>
                                     </div>
-                                    <div className="bg-purple-50/50 p-3 rounded-xl border border-purple-100 flex flex-col items-center">
-                                        <span className="text-[10px] font-black text-purple-400 uppercase">Lámina 2x1</span>
-                                        <span className="text-lg font-black text-purple-700">{selectedProduct.piezas_lamina_2x1 || '-'}</span>
-                                    </div>
-                                </div>
 
-                                <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center">
-                                    <div>
-                                        <span className="text-xs font-bold text-orange-400 uppercase tracking-widest block mb-1">Empaque de</span>
-                                        <span className="text-md font-bold text-orange-700">{selectedProduct.empaque_de || 'No definido'}</span>
+                                    <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center">
+                                        <div>
+                                            <span className="text-xs font-bold text-orange-400 uppercase tracking-widest block mb-1">Empaque de</span>
+                                            <span className="text-md font-bold text-orange-700">{selectedProduct.empaque_de || 'No definido'}</span>
+                                        </div>
+                                        {selectedProduct.plano_pdf_url && (
+                                            <button
+                                                onClick={() => setShowPDFModal(true)}
+                                                className="bg-brand-600 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-brand-700 transition"
+                                            >
+                                                <FileText className="w-4 h-4" /> VER PLANO PDF
+                                            </button>
+                                        )}
                                     </div>
-                                    {selectedProduct.plano_pdf_url && (
-                                        <button
-                                            onClick={() => setShowPDFModal(true)}
-                                            className="bg-brand-600 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-brand-700 transition"
-                                        >
-                                            <FileText className="w-4 h-4" /> VER PLANO PDF
-                                        </button>
-                                    )}
-                                </div>
-                                <div className="space-y-3">
-                                    <h4 className="font-black text-gray-900 uppercase text-xs tracking-widest">Materiales (BoM)</h4>
-                                    <div className="space-y-2">
-                                        {selectedProduct.listaMateriales && selectedProduct.listaMateriales.map((m: any) => (
-                                            <div key={m.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                                <span className="text-sm font-semibold">{m.materiaPrima.nombre_mp}</span>
-                                                <span className="bg-white px-3 py-1 rounded-lg text-xs font-black border border-gray-100">
-                                                    {m.cantidad_requerida} {m.materiaPrima.unidad_medida_stock}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <div className="space-y-3">
+                                        <h4 className="font-black text-gray-900 uppercase text-xs tracking-widest">Materiales (BoM)</h4>
+                                        <div className="space-y-2">
+                                            {selectedProduct.listaMateriales && selectedProduct.listaMateriales.map((m: any) => (
+                                                <div key={m.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                                    <span className="text-sm font-semibold">{m.materiaPrima.nombre_mp}</span>
+                                                    <span className="bg-white px-3 py-1 rounded-lg text-xs font-black border border-gray-100">
+                                                        {m.cantidad_requerida} {m.materiaPrima.unidad_medida_stock}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             {/* PROCEDIMIENTO DETALLADO DE FABRICACIÓN */}
                             <div className="mt-8 pt-8 border-t-2 border-gray-100 print:border-gray-900 print:mt-4 print:pt-4">
                                 <h3 className="text-xl font-black text-gray-900 uppercase tracking-widest mb-6">Procedimiento Detallado de Fabricación</h3>
@@ -794,14 +839,14 @@ export const Products = () => {
                                                 {selectedProduct.rutas
                                                     .sort((a: any, b: any) => a.no_operacion - b.no_operacion)
                                                     .map((ruta: any) => (
-                                                    <tr key={ruta.id} className="print:break-inside-avoid">
-                                                        <td className="p-3 border border-gray-200 font-bold">{ruta.no_operacion}</td>
-                                                        <td className="p-3 border border-gray-200 font-bold">{ruta.nombre_operacion}</td>
-                                                        <td className="p-3 border border-gray-200 text-gray-600">{ruta.centro_trabajo}</td>
-                                                        <td className="p-3 border border-gray-200 font-mono text-center">{ruta.piezas_por_hora_estimado || '-'}</td>
-                                                        <td className="p-3 border border-gray-200 w-32 border-b-2 border-b-gray-400"></td>
-                                                    </tr>
-                                                ))}
+                                                        <tr key={ruta.id} className="print:break-inside-avoid">
+                                                            <td className="p-3 border border-gray-200 font-bold">{ruta.no_operacion}</td>
+                                                            <td className="p-3 border border-gray-200 font-bold">{ruta.nombre_operacion}</td>
+                                                            <td className="p-3 border border-gray-200 text-gray-600">{ruta.centro_trabajo}</td>
+                                                            <td className="p-3 border border-gray-200 font-mono text-center">{ruta.piezas_por_hora_estimado || '-'}</td>
+                                                            <td className="p-3 border border-gray-200 w-32 border-b-2 border-b-gray-400"></td>
+                                                        </tr>
+                                                    ))}
                                             </tbody>
                                         </table>
                                         <div className="hidden print:block mt-8 p-4 border border-gray-400 rounded-lg">
@@ -835,53 +880,53 @@ export const Products = () => {
                             </div>
                             <button onClick={() => setShowStockModal(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"><X className="w-5 h-5" /></button>
                         </div>
-                        
+
                         <div className="p-8">
                             <p className="text-gray-500 mb-6 text-sm">Registra una entrada o salida de inventario para: <br /><strong>{selectedProduct.nombre_producto}</strong></p>
 
-                        <form onSubmit={handleStockAdjustment} className="space-y-6">
-                            <div className="flex p-1 bg-gray-100 rounded-xl">
-                                <button
-                                    type="button"
-                                    onClick={() => setStockType('entrada')}
-                                    className={clsx(
-                                        "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
-                                        stockType === 'entrada' ? "bg-white text-green-600 shadow-sm" : "text-gray-400"
-                                    )}
-                                >
-                                    ENTRADA (+)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setStockType('salida')}
-                                    className={clsx(
-                                        "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
-                                        stockType === 'salida' ? "bg-white text-red-600 shadow-sm" : "text-gray-400"
-                                    )}
-                                >
-                                    SALIDA (-)
-                                </button>
-                            </div>
+                            <form onSubmit={handleStockAdjustment} className="space-y-6">
+                                <div className="flex p-1 bg-gray-100 rounded-xl">
+                                    <button
+                                        type="button"
+                                        onClick={() => setStockType('entrada')}
+                                        className={clsx(
+                                            "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
+                                            stockType === 'entrada' ? "bg-white text-green-600 shadow-sm" : "text-gray-400"
+                                        )}
+                                    >
+                                        ENTRADA (+)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStockType('salida')}
+                                        className={clsx(
+                                            "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
+                                            stockType === 'salida' ? "bg-white text-red-600 shadow-sm" : "text-gray-400"
+                                        )}
+                                    >
+                                        SALIDA (-)
+                                    </button>
+                                </div>
 
-                            <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad de Piezas</label>
-                                <input
-                                    type="number"
-                                    required
-                                    className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-xl"
-                                    value={stockQty}
-                                    onChange={e => setStockQty(e.target.value)}
-                                    placeholder="0"
-                                />
-                            </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad de Piezas</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-xl"
+                                        value={stockQty}
+                                        onChange={e => setStockQty(e.target.value)}
+                                        placeholder="0"
+                                    />
+                                </div>
 
-                            <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
-                                CONFIRMAR MOVIMIENTO
-                            </button>
-                        </form>
+                                <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
+                                    CONFIRMAR MOVIMIENTO
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
 
             {showOTModal && selectedProduct && (
@@ -902,94 +947,94 @@ export const Products = () => {
                                 setSheetQty('');
                             }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"><X className="w-5 h-5" /></button>
                         </div>
-                        
+
                         <div className="p-8">
 
-                        <div className="bg-brand-50 p-4 rounded-2xl mb-8 flex items-center gap-4 border border-brand-100">
-                            <div className="w-16 h-16 rounded-xl overflow-hidden bg-white shrink-0">
-                                <img src={selectedProduct.imagen_url ? (selectedProduct.imagen_url.startsWith('http') ? selectedProduct.imagen_url : `${BASE_URL}${selectedProduct.imagen_url}`) : ''} className="w-full h-full object-cover" />
-                            </div>
-                            <div>
-                                <h4 className="font-bold text-brand-900 line-clamp-1">{selectedProduct.nombre_producto}</h4>
-                                <p className="text-xs font-medium text-brand-600 uppercase tracking-wide">{selectedProduct.cliente?.nombre}</p>
-                            </div>
-                        </div>
-
-                        <form onSubmit={handleCreateOT} className="space-y-6">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-brand-50 p-4 rounded-2xl mb-8 flex items-center gap-4 border border-brand-100">
+                                <div className="w-16 h-16 rounded-xl overflow-hidden bg-white shrink-0">
+                                    <img src={selectedProduct.imagen_url ? (selectedProduct.imagen_url.startsWith('http') ? selectedProduct.imagen_url : `${BASE_URL}${selectedProduct.imagen_url}`) : ''} className="w-full h-full object-cover" />
+                                </div>
                                 <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Número de láminas</label>
+                                    <h4 className="font-bold text-brand-900 line-clamp-1">{selectedProduct.nombre_producto}</h4>
+                                    <p className="text-xs font-medium text-brand-600 uppercase tracking-wide">{selectedProduct.cliente?.nombre}</p>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleCreateOT} className="space-y-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Número de láminas</label>
+                                        <input
+                                            type="number"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={sheetQty}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setSheetQty(val);
+                                                if (val) {
+                                                    const piezasXlaminaStr = sheetType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
+                                                    // Extract number from string like "40 piezas" or "40"
+                                                    const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
+                                                    if (factor > 0) {
+                                                        setOtQty((parseInt(val) * factor).toString());
+                                                    }
+                                                }
+                                            }}
+                                            placeholder="Opcional"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Tipo Lámina</label>
+                                        <select
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-sm"
+                                            value={sheetType}
+                                            onChange={e => {
+                                                const newType = e.target.value as '4x8' | '2x1';
+                                                setSheetType(newType);
+                                                if (sheetQty) {
+                                                    const piezasXlaminaStr = newType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
+                                                    const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
+                                                    if (factor > 0) {
+                                                        setOtQty((parseInt(sheetQty) * factor).toString());
+                                                    }
+                                                }
+                                            }}
+                                        >
+                                            <option value="4x8">4' x 8' ({selectedProduct?.piezas_lamina_4x8 || '?'})</option>
+                                            <option value="2x1">2' x 1' ({selectedProduct?.piezas_lamina_2x1 || '?'})</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad a fabricar</label>
                                     <input
                                         type="number"
+                                        required
                                         className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={sheetQty}
-                                        onChange={e => {
-                                            const val = e.target.value;
-                                            setSheetQty(val);
-                                            if (val) {
-                                                const piezasXlaminaStr = sheetType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
-                                                // Extract number from string like "40 piezas" or "40"
-                                                const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
-                                                if (factor > 0) {
-                                                    setOtQty((parseInt(val) * factor).toString());
-                                                }
-                                            }
-                                        }}
-                                        placeholder="Opcional"
+                                        value={otQty}
+                                        onChange={e => setOtQty(e.target.value)}
+                                        placeholder="Cantidad"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Tipo Lámina</label>
-                                    <select
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-sm"
-                                        value={sheetType}
-                                        onChange={e => {
-                                            const newType = e.target.value as '4x8' | '2x1';
-                                            setSheetType(newType);
-                                            if (sheetQty) {
-                                                const piezasXlaminaStr = newType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
-                                                const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
-                                                if (factor > 0) {
-                                                    setOtQty((parseInt(sheetQty) * factor).toString());
-                                                }
-                                            }
-                                        }}
-                                    >
-                                        <option value="4x8">4' x 8' ({selectedProduct?.piezas_lamina_4x8 || '?'})</option>
-                                        <option value="2x1">2' x 1' ({selectedProduct?.piezas_lamina_2x1 || '?'})</option>
-                                    </select>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Fecha Estimada Entrega</label>
+                                    <input
+                                        type="date"
+                                        required
+                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                        value={otDate}
+                                        onChange={e => setOtDate(e.target.value)}
+                                    />
                                 </div>
-                            </div>
 
-                            <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad a fabricar</label>
-                                <input
-                                    type="number"
-                                    required
-                                    className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                    value={otQty}
-                                    onChange={e => setOtQty(e.target.value)}
-                                    placeholder="Cantidad"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Fecha Estimada Entrega</label>
-                                <input
-                                    type="date"
-                                    required
-                                    className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                    value={otDate}
-                                    onChange={e => setOtDate(e.target.value)}
-                                />
-                            </div>
-
-                            <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
-                                LANZAR PRODUCCIÓN
-                            </button>
-                        </form>
+                                <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
+                                    LANZAR PRODUCCIÓN
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
 
             {showEditModal && selectedProduct && (
@@ -1005,217 +1050,217 @@ export const Products = () => {
                             </div>
                             <button onClick={() => setShowEditModal(false)} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-10">
 
-                        <form onSubmit={handleEditProduct} className="space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="col-span-2 flex justify-between items-center bg-gray-50 p-4 rounded-2xl border">
-                                    <div className="flex items-center gap-3">
-                                        <div className={clsx("w-3 h-3 rounded-full", editData.activo ? "bg-green-500" : "bg-gray-300")}></div>
-                                        <span className="font-bold text-gray-700">{editData.activo ? "Producto Visible" : "Producto Oculto"}</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditData({ ...editData, activo: !editData.activo })}
-                                        className={clsx(
-                                            "px-4 py-2 rounded-xl text-xs font-black transition",
-                                            editData.activo ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-green-100 text-green-600 hover:bg-green-200"
-                                        )}
-                                    >
-                                        {editData.activo ? "OCULTAR PRODUCTO" : "MOSTRAR PRODUCTO"}
-                                    </button>
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={editData.nombre_producto}
-                                        onChange={e => setEditData({ ...editData, nombre_producto: e.target.value })}
-                                    />
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Imagen del Producto</label>
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="file"
-                                            id="product-image"
-                                            accept="image/*"
-                                            onChange={e => setEditData({ ...editData, imageFile: e.target.files ? e.target.files[0] : undefined })}
-                                            className="hidden"
-                                        />
-                                        <label htmlFor="product-image" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
-                                            <Upload className="w-4 h-4" /> {editData.imageFile ? 'Imagen Listas' : 'Cargar Imagen'}
-                                        </label>
-                                    </div>
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Plano PDF</label>
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="file"
-                                            id="product-pdf"
-                                            accept="application/pdf"
-                                            onChange={e => setEditData({ ...editData, pdfFile: e.target.files ? e.target.files[0] : undefined })}
-                                            className="hidden"
-                                        />
-                                        <label htmlFor="product-pdf" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
-                                            <FileText className="w-4 h-4" /> {editData.pdfFile ? 'PDF Listo' : 'Cargar Plano'}
-                                        </label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
-                                        value={editData.sku_producto}
-                                        onChange={e => setEditData({ ...editData, sku_producto: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
-                                    <select
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={editData.cliente_id}
-                                        onChange={e => setEditData({ ...editData, cliente_id: e.target.value })}
-                                    >
-                                        <option value="">Seleccionar Cliente</option>
-                                        {clients.map(c => (
-                                            <option key={c.id} value={c.id}>{c.nombre}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={editData.acabado}
-                                        onChange={e => setEditData({ ...editData, acabado: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={editData.ancho_tira}
-                                        onChange={e => setEditData({ ...editData, ancho_tira: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={editData.medidas_pieza}
-                                        onChange={e => setEditData({ ...editData, medidas_pieza: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                        value={editData.empaque_de}
-                                        onChange={e => setEditData({ ...editData, empaque_de: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
-                                    <input
-                                        type="number"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={editData.precio_venta}
-                                        onChange={e => setEditData({ ...editData, precio_venta: e.target.value })}
-                                        placeholder="0.00"
-                                    />
-                                </div>
-
-                                <div className="col-span-2 space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400">Materiales Requeridos (Materia Prima)</label>
+                            <form onSubmit={handleEditProduct} className="space-y-6">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="col-span-2 flex justify-between items-center bg-gray-50 p-4 rounded-2xl border">
+                                        <div className="flex items-center gap-3">
+                                            <div className={clsx("w-3 h-3 rounded-full", editData.activo ? "bg-green-500" : "bg-gray-300")}></div>
+                                            <span className="font-bold text-gray-700">{editData.activo ? "Producto Visible" : "Producto Oculto"}</span>
+                                        </div>
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                const firstMP = allMateriaPrima[0];
-                                                if (firstMP) {
-                                                    setEditData({
-                                                        ...editData,
-                                                        materials: [...(editData.materials || []), { materia_prima_id: firstMP.id, nombre_mp: firstMP.nombre_mp, cantidad_requerida: 1 }]
-                                                    });
-                                                }
-                                            }}
-                                            className="text-brand-600 text-xs font-black hover:underline"
+                                            onClick={() => setEditData({ ...editData, activo: !editData.activo })}
+                                            className={clsx(
+                                                "px-4 py-2 rounded-xl text-xs font-black transition",
+                                                editData.activo ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-green-100 text-green-600 hover:bg-green-200"
+                                            )}
                                         >
-                                            + AGREGAR MATERIAL
+                                            {editData.activo ? "OCULTAR PRODUCTO" : "MOSTRAR PRODUCTO"}
                                         </button>
                                     </div>
-                                    <div className="space-y-2">
-                                        {(editData.materials || []).map((m: any, idx: number) => (
-                                            <div key={idx} className="flex gap-3 items-center bg-gray-50 p-3 rounded-xl border">
-                                                <select
-                                                    className="flex-1 bg-transparent font-bold text-sm outline-none"
-                                                    value={m.materia_prima_id}
-                                                    onChange={e => {
-                                                        const newMats = [...editData.materials];
-                                                        newMats[idx].materia_prima_id = Number(e.target.value);
-                                                        setEditData({ ...editData, materials: newMats });
-                                                    }}
-                                                >
-                                                    {allMateriaPrima.map(mp => (
-                                                        <option key={mp.id} value={mp.id}>{mp.nombre_mp} ({mp.sku_mp})</option>
-                                                    ))}
-                                                </select>
-                                                <input
-                                                    type="number"
-                                                    className="w-20 bg-white px-2 py-1 rounded border text-center font-bold"
-                                                    value={m.cantidad_requerida}
-                                                    onChange={e => {
-                                                        const newMats = [...editData.materials];
-                                                        newMats[idx].cantidad_requerida = e.target.value;
-                                                        setEditData({ ...editData, materials: newMats });
-                                                    }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newMats = editData.materials.filter((_: any, i: number) => i !== idx);
-                                                        setEditData({ ...editData, materials: newMats });
-                                                    }}
-                                                    className="p-1 text-red-500 hover:bg-red-100 rounded"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={editData.nombre_producto}
+                                            onChange={e => setEditData({ ...editData, nombre_producto: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Imagen del Producto</label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="file"
+                                                id="product-image"
+                                                accept="image/*"
+                                                onChange={e => setEditData({ ...editData, imageFile: e.target.files ? e.target.files[0] : undefined })}
+                                                className="hidden"
+                                            />
+                                            <label htmlFor="product-image" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
+                                                <Upload className="w-4 h-4" /> {editData.imageFile ? 'Imagen Listas' : 'Cargar Imagen'}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Plano PDF</label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="file"
+                                                id="product-pdf"
+                                                accept="application/pdf"
+                                                onChange={e => setEditData({ ...editData, pdfFile: e.target.files ? e.target.files[0] : undefined })}
+                                                className="hidden"
+                                            />
+                                            <label htmlFor="product-pdf" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
+                                                <FileText className="w-4 h-4" /> {editData.pdfFile ? 'PDF Listo' : 'Cargar Plano'}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
+                                            value={editData.sku_producto}
+                                            onChange={e => setEditData({ ...editData, sku_producto: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
+                                        <select
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={editData.cliente_id}
+                                            onChange={e => setEditData({ ...editData, cliente_id: e.target.value })}
+                                        >
+                                            <option value="">Seleccionar Cliente</option>
+                                            {clients.map(c => (
+                                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={editData.acabado}
+                                            onChange={e => setEditData({ ...editData, acabado: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={editData.ancho_tira}
+                                            onChange={e => setEditData({ ...editData, ancho_tira: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={editData.medidas_pieza}
+                                            onChange={e => setEditData({ ...editData, medidas_pieza: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={editData.empaque_de}
+                                            onChange={e => setEditData({ ...editData, empaque_de: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
+                                        <input
+                                            type="number"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={editData.precio_venta}
+                                            onChange={e => setEditData({ ...editData, precio_venta: e.target.value })}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+
+                                    <div className="col-span-2 space-y-4">
+                                        <div className="flex justify-between items-center">
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400">Materiales Requeridos (Materia Prima)</label>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const firstMP = allMateriaPrima[0];
+                                                    if (firstMP) {
+                                                        setEditData({
+                                                            ...editData,
+                                                            materials: [...(editData.materials || []), { materia_prima_id: firstMP.id, nombre_mp: firstMP.nombre_mp, cantidad_requerida: 1 }]
+                                                        });
+                                                    }
+                                                }}
+                                                className="text-brand-600 text-xs font-black hover:underline"
+                                            >
+                                                + AGREGAR MATERIAL
+                                            </button>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {(editData.materials || []).map((m: any, idx: number) => (
+                                                <div key={idx} className="flex gap-3 items-center bg-gray-50 p-3 rounded-xl border">
+                                                    <select
+                                                        className="flex-1 bg-transparent font-bold text-sm outline-none"
+                                                        value={m.materia_prima_id}
+                                                        onChange={e => {
+                                                            const newMats = [...editData.materials];
+                                                            newMats[idx].materia_prima_id = Number(e.target.value);
+                                                            setEditData({ ...editData, materials: newMats });
+                                                        }}
+                                                    >
+                                                        {allMateriaPrima.map(mp => (
+                                                            <option key={mp.id} value={mp.id}>{mp.nombre_mp} ({mp.sku_mp})</option>
+                                                        ))}
+                                                    </select>
+                                                    <input
+                                                        type="number"
+                                                        className="w-20 bg-white px-2 py-1 rounded border text-center font-bold"
+                                                        value={m.cantidad_requerida}
+                                                        onChange={e => {
+                                                            const newMats = [...editData.materials];
+                                                            newMats[idx].cantidad_requerida = e.target.value;
+                                                            setEditData({ ...editData, materials: newMats });
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newMats = editData.materials.filter((_: any, i: number) => i !== idx);
+                                                            setEditData({ ...editData, materials: newMats });
+                                                        }}
+                                                        className="p-1 text-red-500 hover:bg-red-100 rounded"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="flex gap-4 pt-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowEditModal(false)}
-                                    className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
-                                >
-                                    CANCELAR
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
-                                >
-                                    GUARDAR CAMBIOS
-                                </button>
-                            </div>
-                        </form>
+                                <div className="flex gap-4 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEditModal(false)}
+                                        className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
+                                    >
+                                        CANCELAR
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
+                                    >
+                                        GUARDAR CAMBIOS
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
 
             {/* PDF VIEWER MODAL */}
@@ -1284,18 +1329,18 @@ export const Products = () => {
                                             <div className="flex items-center gap-4">
                                                 <div className={clsx(
                                                     "w-10 h-10 rounded-xl flex items-center justify-center",
-                                                    m.tipo_movimiento === 'entrada' ? "bg-green-50 text-green-600" : 
-                                                    m.tipo_movimiento === 'salida' ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
+                                                    m.tipo_movimiento === 'entrada' ? "bg-green-50 text-green-600" :
+                                                        m.tipo_movimiento === 'salida' ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
                                                 )}>
-                                                    {m.tipo_movimiento === 'entrada' ? <Plus className="w-5 h-5" /> : 
-                                                     m.tipo_movimiento === 'salida' ? <X className="w-5 h-5" /> : <ArrowUpDown className="w-5 h-5" />}
+                                                    {m.tipo_movimiento === 'entrada' ? <Plus className="w-5 h-5" /> :
+                                                        m.tipo_movimiento === 'salida' ? <X className="w-5 h-5" /> : <ArrowUpDown className="w-5 h-5" />}
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2">
                                                         <span className={clsx(
                                                             "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                                                            m.tipo_movimiento === 'entrada' ? "bg-green-100 text-green-700" : 
-                                                            m.tipo_movimiento === 'salida' ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                                                            m.tipo_movimiento === 'entrada' ? "bg-green-100 text-green-700" :
+                                                                m.tipo_movimiento === 'salida' ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
                                                         )}>
                                                             {m.tipo_movimiento}
                                                         </span>
@@ -1307,8 +1352,8 @@ export const Products = () => {
                                             <div className="text-right">
                                                 <span className={clsx(
                                                     "text-lg font-black",
-                                                    m.tipo_movimiento === 'entrada' ? "text-green-600" : 
-                                                    m.tipo_movimiento === 'salida' ? "text-red-600" : "text-blue-600"
+                                                    m.tipo_movimiento === 'entrada' ? "text-green-600" :
+                                                        m.tipo_movimiento === 'salida' ? "text-red-600" : "text-blue-600"
                                                 )}>
                                                     {m.tipo_movimiento === 'salida' ? '-' : '+'}{m.cantidad}
                                                 </span>
@@ -1354,123 +1399,123 @@ export const Products = () => {
 
                         <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50">
 
-                        <form onSubmit={handleUpdateRoutes} className="space-y-6">
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-gray-50 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                    <div className="col-span-1">No.</div>
-                                    <div className="col-span-4">Operación</div>
-                                    <div className="col-span-3">Centro de Trabajo</div>
-                                    <div className="col-span-2">Pzs/Hora</div>
-                                    <div className="col-span-1">T. Est (min)</div>
-                                    <div className="col-span-1 text-center">Acción</div>
+                            <form onSubmit={handleUpdateRoutes} className="space-y-6">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-gray-50 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                        <div className="col-span-1">No.</div>
+                                        <div className="col-span-4">Operación</div>
+                                        <div className="col-span-3">Centro de Trabajo</div>
+                                        <div className="col-span-2">Pzs/Hora</div>
+                                        <div className="col-span-1">T. Est (min)</div>
+                                        <div className="col-span-1 text-center">Acción</div>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {routesData.map((r, idx) => (
+                                            <div key={idx} className="grid grid-cols-12 gap-4 items-center bg-white p-3 rounded-2xl border border-gray-100 hover:border-brand-200 transition shadow-sm">
+                                                <div className="col-span-1 font-mono font-bold text-brand-600 text-center">{r.no}</div>
+                                                <div className="col-span-4">
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
+                                                        value={r.nombre}
+                                                        onChange={e => {
+                                                            const newRoutes = [...routesData];
+                                                            newRoutes[idx].nombre = e.target.value;
+                                                            setRoutesData(newRoutes);
+                                                        }}
+                                                        placeholder="Ej: Corte, Troquelado..."
+                                                    />
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
+                                                        value={r.centro}
+                                                        onChange={e => {
+                                                            const newRoutes = [...routesData];
+                                                            newRoutes[idx].centro = e.target.value;
+                                                            setRoutesData(newRoutes);
+                                                        }}
+                                                        placeholder="Ej: Cizalla, Prensa..."
+                                                    />
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <input
+                                                        type="number"
+                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
+                                                        value={r.piezas_hora}
+                                                        onChange={e => {
+                                                            const newRoutes = [...routesData];
+                                                            newRoutes[idx].piezas_hora = e.target.value;
+                                                            setRoutesData(newRoutes);
+                                                        }}
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                                <div className="col-span-1">
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        className="w-full px-3 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
+                                                        value={r.tiempo_estandar}
+                                                        onChange={e => {
+                                                            const newRoutes = [...routesData];
+                                                            newRoutes[idx].tiempo_estandar = e.target.value;
+                                                            setRoutesData(newRoutes);
+                                                        }}
+                                                        placeholder="0.00"
+                                                    />
+                                                </div>
+                                                <div className="col-span-1 text-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newRoutes = routesData.filter((_, i) => i !== idx);
+                                                            setRoutesData(newRoutes);
+                                                        }}
+                                                        className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const lastNo = routesData.length > 0 ? routesData[routesData.length - 1].no : 0;
+                                            setRoutesData([...routesData, { id: undefined, no: lastNo + 10, nombre: '', centro: '', piezas_hora: '', tiempo_estandar: '' }]);
+                                        }}
+                                        className="w-full py-4 rounded-2xl border-2 border-dashed border-gray-100 text-gray-400 hover:border-brand-500 hover:text-brand-600 font-black flex items-center justify-center gap-3 transition group"
+                                    >
+                                        <Plus className="w-5 h-5 group-hover:scale-125 transition-transform" /> AGREGAR OPERACIÓN A LA RUTA
+                                    </button>
                                 </div>
 
-                                <div className="space-y-3">
-                                    {routesData.map((r, idx) => (
-                                        <div key={idx} className="grid grid-cols-12 gap-4 items-center bg-white p-3 rounded-2xl border border-gray-100 hover:border-brand-200 transition shadow-sm">
-                                            <div className="col-span-1 font-mono font-bold text-brand-600 text-center">{r.no}</div>
-                                            <div className="col-span-4">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                    value={r.nombre}
-                                                    onChange={e => {
-                                                        const newRoutes = [...routesData];
-                                                        newRoutes[idx].nombre = e.target.value;
-                                                        setRoutesData(newRoutes);
-                                                    }}
-                                                    placeholder="Ej: Corte, Troquelado..."
-                                                />
-                                            </div>
-                                            <div className="col-span-3">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                    value={r.centro}
-                                                    onChange={e => {
-                                                        const newRoutes = [...routesData];
-                                                        newRoutes[idx].centro = e.target.value;
-                                                        setRoutesData(newRoutes);
-                                                    }}
-                                                    placeholder="Ej: Cizalla, Prensa..."
-                                                />
-                                            </div>
-                                            <div className="col-span-2">
-                                                <input
-                                                    type="number"
-                                                    className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                    value={r.piezas_hora}
-                                                    onChange={e => {
-                                                        const newRoutes = [...routesData];
-                                                        newRoutes[idx].piezas_hora = e.target.value;
-                                                        setRoutesData(newRoutes);
-                                                    }}
-                                                    placeholder="0"
-                                                />
-                                            </div>
-                                            <div className="col-span-1">
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    className="w-full px-3 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                    value={r.tiempo_estandar}
-                                                    onChange={e => {
-                                                        const newRoutes = [...routesData];
-                                                        newRoutes[idx].tiempo_estandar = e.target.value;
-                                                        setRoutesData(newRoutes);
-                                                    }}
-                                                    placeholder="0.00"
-                                                />
-                                            </div>
-                                            <div className="col-span-1 text-center">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newRoutes = routesData.filter((_, i) => i !== idx);
-                                                        setRoutesData(newRoutes);
-                                                    }}
-                                                    className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition"
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
+                                <div className="flex gap-4 pt-8 border-t border-gray-100 bg-white p-8">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowRouteModal(false)}
+                                        className="flex-1 bg-gray-100 text-gray-500 py-5 rounded-[1.5rem] font-black hover:bg-gray-200 transition"
+                                    >
+                                        CANCELAR
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-1 bg-brand-600 text-white py-5 rounded-[1.5rem] font-black shadow-xl shadow-brand-100 hover:bg-brand-700 transition transform hover:scale-[1.02] active:scale-95"
+                                    >
+                                        GUARDAR RUTA DE FABRICACIÓN
+                                    </button>
                                 </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const lastNo = routesData.length > 0 ? routesData[routesData.length - 1].no : 0;
-                                        setRoutesData([...routesData, { id: undefined, no: lastNo + 10, nombre: '', centro: '', piezas_hora: '', tiempo_estandar: '' }]);
-                                    }}
-                                    className="w-full py-4 rounded-2xl border-2 border-dashed border-gray-100 text-gray-400 hover:border-brand-500 hover:text-brand-600 font-black flex items-center justify-center gap-3 transition group"
-                                >
-                                    <Plus className="w-5 h-5 group-hover:scale-125 transition-transform" /> AGREGAR OPERACIÓN A LA RUTA
-                                </button>
-                            </div>
-
-                            <div className="flex gap-4 pt-8 border-t border-gray-100 bg-white p-8">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowRouteModal(false)}
-                                    className="flex-1 bg-gray-100 text-gray-500 py-5 rounded-[1.5rem] font-black hover:bg-gray-200 transition"
-                                >
-                                    CANCELAR
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-brand-600 text-white py-5 rounded-[1.5rem] font-black shadow-xl shadow-brand-100 hover:bg-brand-700 transition transform hover:scale-[1.02] active:scale-95"
-                                >
-                                    GUARDAR RUTA DE FABRICACIÓN
-                                </button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
         </div>
     );
