@@ -2,7 +2,7 @@
 import React from 'react';
 import { useAuthStore } from '../store/auth.store';
 import { Link, Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Package, ClipboardList, Users, LogOut, Menu, X, Factory, Settings, Wrench, ChevronDown, ChevronRight, Truck } from 'lucide-react';
+import { LayoutDashboard, Package, ClipboardList, Users, LogOut, Menu, X, Factory, Settings, Wrench, ChevronDown, Truck } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfigStore } from '../store/config.store';
 import { SyncIndicator } from '../components/SyncIndicator';
@@ -12,8 +12,9 @@ export const DashboardLayout = () => {
     const { fetchUserSettings, fetchGlobalSettings } = useConfigStore();
     const navigate = useNavigate();
     const location = useLocation();
-    const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
-    const [isWarehouseOpen, setIsWarehouseOpen] = React.useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+    const [openDropdown, setOpenDropdown] = React.useState<string | null>(null);
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
 
     // Initialize configuration
     React.useEffect(() => {
@@ -21,24 +22,31 @@ export const DashboardLayout = () => {
         fetchGlobalSettings();
     }, []);
 
-    // Ensure sidebar/overlay is closed on mount and when route changes
+    // Close mobile menu on route change
     React.useEffect(() => {
-        setIsSidebarOpen(false);
-    }, []);
-
-    // Close sidebar when navigating to another route
-    React.useEffect(() => {
-        setIsSidebarOpen(false);
-        // Automatically open warehouse if current path is a sub-item
-        const warehousePaths = ['/inventory', '/products', '/tools', '/loans', '/pedidos'];
-        if (warehousePaths.includes(location.pathname)) {
-            setIsWarehouseOpen(true);
-        }
+        setIsMobileMenuOpen(false);
+        setOpenDropdown(null);
     }, [location.pathname]);
+
+    // Close dropdown on click outside
+    React.useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setOpenDropdown(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     // Close on Escape key
     React.useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsSidebarOpen(false); };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsMobileMenuOpen(false);
+                setOpenDropdown(null);
+            }
+        };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
@@ -55,99 +63,102 @@ export const DashboardLayout = () => {
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
         { 
-            label: 'ALMACÉN', 
+            label: 'Almacén', 
             icon: Package, 
             isGroup: true,
             roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos'],
             subItems: [
                 { icon: Package, label: 'Inventario MP', path: '/inventory', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
                 { icon: Factory, label: 'Catálogo Productos', path: '/products', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Diseño', 'Contabilidad', 'Compras'] },
-                { icon: Wrench, label: 'Inventario Herramientas', path: '/tools', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
-                { icon: ClipboardList, label: 'Préstamo Herramientas', path: '/loans', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Recursos Humanos', 'Compras'] },
-                { icon: Truck, label: 'PEDIDOS', path: '/pedidos', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
+                { icon: Wrench, label: 'Herramientas', path: '/tools', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
+                { icon: ClipboardList, label: 'Préstamos', path: '/loans', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Recursos Humanos', 'Compras'] },
+                { icon: Truck, label: 'Pedidos', path: '/pedidos', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
             ]
         },
-        { icon: ClipboardList, label: 'Órdenes Trabajo', path: '/orders', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
+        { icon: ClipboardList, label: 'Órdenes', path: '/orders', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
         { icon: Users, label: 'Clientes', path: '/clients', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Contabilidad', 'Compras', 'Ventas'] },
-        { icon: Users, label: 'Control Personal', path: '/personal', roles: ['Administrador'] },
+        { icon: Users, label: 'Personal', path: '/personal', roles: ['Administrador'] },
         { icon: Settings, label: 'Mantenimiento', path: '/maintenance', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
-        { icon: Factory, label: 'Proyectos Especiales', path: '/special-projects', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Diseño', 'Contabilidad', 'Compras'] },
-        { icon: Settings, label: 'Configuraciones', path: '/settings', roles: ['Administrador'] },
-
-        { icon: Factory, label: 'Mis Tareas', path: '/tasks', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
+        { icon: Factory, label: 'Proyectos', path: '/special-projects', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Diseño', 'Contabilidad', 'Compras'] },
+        { icon: Settings, label: 'Config', path: '/settings', roles: ['Administrador'] },
+        { icon: Factory, label: 'Tareas', path: '/tasks', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
         { icon: Users, label: 'Usuarios', path: '/users', roles: ['Administrador', 'Gerencia', 'Compras'] },
     ];
 
     const filteredItems = menuItems.filter(item => item.roles.includes(user.rol));
 
+    // Check if a group has an active sub-item
+    const isGroupActive = (item: typeof menuItems[0]) => {
+        if (!item.isGroup || !item.subItems) return false;
+        return item.subItems.some(sub => location.pathname === sub.path);
+    };
+
+    const activeGroupLabel = filteredItems.find(item => item.isGroup && isGroupActive(item))?.label;
+
     return (
-        <div className="flex h-screen bg-gray-50 dark:bg-slate-950 overflow-hidden">
-            {/* Mobile Sidebar Overlay */}
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-                    onClick={() => setIsSidebarOpen(false)}
-                />
-            )}
+        <div className="flex flex-col h-screen bg-transparent overflow-hidden relative z-10">
+            
+            {/* ===== TOP NAV BAR ===== */}
+            <header className="flex-shrink-0 w-full px-4 lg:px-6 pt-4 pb-2">
+                <div className="glass-panel rounded-2xl px-4 py-2.5 flex items-center justify-between gap-2">
+                    
+                    {/* Logo / Brand */}
+                    <Link to="/" className="flex items-center gap-2 mr-2 flex-shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-brand-400 flex items-center justify-center">
+                            <LayoutDashboard className="w-4 h-4 text-brand-950" />
+                        </div>
+                        <span className="font-bold text-slate-800 text-sm hidden sm:block">Control MT</span>
+                    </Link>
 
-            {/* Sidebar */}
-            <aside className={clsx(
-                "fixed lg:static inset-y-0 left-0 z-30 w-64 bg-slate-900 bg-gradient-to-b from-slate-950 via-slate-900 to-brand-900 text-white transform transition-transform duration-200 ease-in-out lg:translate-x-0",
-                isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-            )}>
-                <div className="flex items-center justify-between h-16 px-6 bg-slate-900/40 backdrop-blur-sm border-b border-white/5">
-                    <img src="/logo.png" alt="Control MT Logo" className="h-12 w-auto" />
-                    <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden">
-                        <X className="w-6 h-6" />
-                    </button>
-                </div>
-
-                <div className="p-4">
-                    <div className="mb-6 px-4 py-3 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-sm">
-                        <p className="text-sm text-slate-400">Bienvenido,</p>
-                        <p className="font-semibold truncate">{user.nombre}</p>
-                        <p className="text-xs text-slate-500 uppercase mt-1">{user.rol}</p>
-                    </div>
-
-                    <nav className="space-y-1">
+                    {/* Desktop Navigation */}
+                    <nav className="hidden lg:flex items-center justify-center gap-1 flex-1 flex-wrap" ref={dropdownRef}>
                         {filteredItems.map((item) => {
                             if (item.isGroup) {
-                                const isWarehouse = item.label === 'ALMACÉN';
                                 const subItems = item.subItems?.filter(si => si.roles.includes(user.rol)) || [];
                                 if (subItems.length === 0) return null;
+                                const groupActive = isGroupActive(item);
+                                const isOpen = openDropdown === item.label;
 
                                 return (
-                                    <div key={item.label} className="space-y-1">
+                                    <div key={item.label} className="relative">
                                         <button
-                                            onClick={() => setIsWarehouseOpen(!isWarehouseOpen)}
+                                            onClick={() => setOpenDropdown(isOpen ? null : item.label)}
                                             className={clsx(
-                                                "flex items-center justify-between w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors text-slate-300 hover:bg-slate-800 hover:text-white"
+                                                "flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all relative group",
+                                                groupActive
+                                                    ? "bg-white shadow-sm text-brand-700 border border-black/5"
+                                                    : "text-slate-500 hover:bg-white/60 hover:text-slate-800"
                                             )}
                                         >
-                                            <div className="flex items-center">
-                                                <item.icon className="w-5 h-5 mr-3" />
-                                                {item.label}
-                                            </div>
-                                            {isWarehouseOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                            <item.icon className="w-4 h-4 flex-shrink-0" />
+                                            {groupActive && <span className="whitespace-nowrap">{item.label}</span>}
+                                            <ChevronDown className={clsx("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
+                                            
+                                            {/* Tooltip for icon-only */}
+                                            {!groupActive && (
+                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                                                    {item.label}
+                                                </span>
+                                            )}
                                         </button>
-                                        
-                                        {isWarehouseOpen && (
-                                            <div className="pl-4 space-y-1 mt-1 border-l-2 border-slate-800 ml-6">
+
+                                        {/* Dropdown */}
+                                        {isOpen && (
+                                            <div className="absolute top-full left-0 mt-2 py-2 glass-panel rounded-xl min-w-[200px] z-50 shadow-xl animate-in fade-in slide-in-from-top-2">
                                                 {subItems.map((sub) => {
                                                     const isSubActive = location.pathname === sub.path;
                                                     return (
                                                         <Link
                                                             key={sub.path}
                                                             to={sub.path}
-                                                            onClick={() => setIsSidebarOpen(false)}
                                                             className={clsx(
-                                                                "flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                                                "flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-all mx-1 rounded-lg",
                                                                 isSubActive
-                                                                    ? "bg-brand-600/30 text-white border border-brand-500/50 shadow-lg shadow-brand-900/20"
-                                                                    : "text-slate-300 hover:bg-white/10 hover:text-white"
+                                                                    ? "bg-brand-50 text-brand-700"
+                                                                    : "text-slate-600 hover:bg-white/60 hover:text-slate-800"
                                                             )}
                                                         >
-                                                            <sub.icon className="w-4 h-4 mr-3" />
+                                                            <sub.icon className="w-4 h-4" />
                                                             {sub.label}
                                                         </Link>
                                                     );
@@ -158,70 +169,163 @@ export const DashboardLayout = () => {
                                 );
                             }
 
+                            // Regular menu item
                             const isActive = location.pathname === item.path;
                             return (
                                 <Link
                                     key={item.path}
                                     to={item.path}
-                                    onClick={() => setIsSidebarOpen(false)}
                                     className={clsx(
-                                        "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                                        "flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all relative group flex-shrink-0",
                                         isActive
-                                        ? "bg-brand-600 text-white shadow-lg shadow-brand-900/40"
-                                        : "text-slate-200 hover:bg-white/10 hover:text-white"
+                                            ? "bg-white shadow-sm text-brand-700 border border-black/5"
+                                            : "text-slate-500 hover:bg-white/60 hover:text-slate-800"
                                     )}
                                 >
-                                    <item.icon className="w-5 h-5 mr-3" />
-                                    {item.label}
+                                    <item.icon className="w-4 h-4 flex-shrink-0" />
+                                    {isActive && <span className="whitespace-nowrap">{item.label}</span>}
+
+                                    {/* Tooltip for icon-only */}
+                                    {!isActive && (
+                                        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                                            {item.label}
+                                        </span>
+                                    )}
                                 </Link>
                             );
                         })}
                     </nav>
-                </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-slate-950/20 backdrop-blur-md border-t border-white/5">
-                    <button
-                        onClick={handleLogout}
-                        className="flex items-center w-full px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                    >
-                        <LogOut className="w-5 h-5 mr-3" />
-                        Cerrar Sesión
-                    </button>
-                </div>
-            </aside>
-
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                {/* Mobile Header */}
-                <header className="bg-white dark:bg-slate-900 shadow-sm lg:hidden h-16 flex items-center justify-between px-4">
-                    <div className="flex items-center">
-                        <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-gray-600 dark:text-gray-400">
-                            <Menu className="w-6 h-6" />
+                    {/* Right section: Sync + User + Logout */}
+                    <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
+                        <SyncIndicator />
+                        <div className="h-6 w-px bg-black/10" />
+                        <div className="flex items-center gap-2">
+                            <div className="text-right">
+                                <p className="text-xs font-bold text-slate-800 leading-none">{user.nombre}</p>
+                                <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mt-0.5">{user.rol}</p>
+                            </div>
+                            <div className="w-9 h-9 rounded-full bg-white shadow-sm border border-black/5 text-brand-600 flex items-center justify-center font-black text-sm">
+                                {user.nombre.charAt(0)}
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleLogout}
+                            className="p-2 rounded-xl text-red-500 hover:bg-red-50 transition-colors relative group"
+                            title="Cerrar Sesión"
+                        >
+                            <LogOut className="w-4 h-4" />
+                            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                                Cerrar Sesión
+                            </span>
                         </button>
-                        <span className="ml-4 font-semibold text-gray-800 dark:text-white">Control MT</span>
                     </div>
-                    <SyncIndicator />
-                </header>
 
-                {/* Desktop Top Bar */}
-                <header className="hidden lg:flex bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 h-16 items-center justify-end px-8 gap-4">
-                    <SyncIndicator />
-                    <div className="h-8 w-px bg-gray-100 dark:bg-slate-800 mx-2" />
-                    <div className="flex items-center gap-3">
-                        <div className="text-right">
-                            <p className="text-sm font-bold text-gray-900 dark:text-white leading-none">{user.nombre}</p>
-                            <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest mt-1">{user.rol}</p>
+                    {/* Mobile: Hamburger */}
+                    <div className="flex lg:hidden items-center gap-2">
+                        <SyncIndicator />
+                        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-700">
+                            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Mobile Dropdown Menu */}
+                {isMobileMenuOpen && (
+                    <div className="lg:hidden glass-panel rounded-2xl mt-2 p-3 shadow-xl max-h-[70vh] overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                        {/* User info */}
+                        <div className="flex items-center gap-3 px-3 py-3 border-b border-black/5 mb-2">
+                            <div className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 text-brand-600 flex items-center justify-center font-black">
+                                {user.nombre.charAt(0)}
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-800">{user.nombre}</p>
+                                <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider">{user.rol}</p>
+                            </div>
                         </div>
-                        <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center font-black">
-                            {user.nombre.charAt(0)}
+
+                        <nav className="space-y-1">
+                            {filteredItems.map((item) => {
+                                if (item.isGroup) {
+                                    const subItems = item.subItems?.filter(si => si.roles.includes(user.rol)) || [];
+                                    if (subItems.length === 0) return null;
+                                    const groupActive = isGroupActive(item);
+                                    const isOpen = openDropdown === item.label;
+
+                                    return (
+                                        <div key={item.label}>
+                                            <button
+                                                onClick={() => setOpenDropdown(isOpen ? null : item.label)}
+                                                className={clsx(
+                                                    "flex items-center justify-between w-full px-3 py-2.5 text-sm font-medium rounded-xl transition-all",
+                                                    groupActive ? "bg-white/80 text-brand-700" : "text-slate-600 hover:bg-white/50"
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <item.icon className="w-5 h-5" />
+                                                    {item.label}
+                                                </div>
+                                                <ChevronDown className={clsx("w-4 h-4 transition-transform", isOpen && "rotate-180")} />
+                                            </button>
+                                            {isOpen && (
+                                                <div className="pl-6 mt-1 space-y-0.5 border-l-2 border-brand-200 ml-5">
+                                                    {subItems.map((sub) => {
+                                                        const isSubActive = location.pathname === sub.path;
+                                                        return (
+                                                            <Link
+                                                                key={sub.path}
+                                                                to={sub.path}
+                                                                className={clsx(
+                                                                    "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-all",
+                                                                    isSubActive ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-white/50"
+                                                                )}
+                                                            >
+                                                                <sub.icon className="w-4 h-4" />
+                                                                {sub.label}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+
+                                const isActive = location.pathname === item.path;
+                                return (
+                                    <Link
+                                        key={item.path}
+                                        to={item.path}
+                                        className={clsx(
+                                            "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all",
+                                            isActive ? "bg-white shadow-sm text-brand-700 border border-black/5" : "text-slate-600 hover:bg-white/50"
+                                        )}
+                                    >
+                                        <item.icon className="w-5 h-5" />
+                                        {item.label}
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+
+                        {/* Logout */}
+                        <div className="border-t border-black/5 mt-2 pt-2">
+                            <button
+                                onClick={handleLogout}
+                                className="flex items-center gap-3 w-full px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            >
+                                <LogOut className="w-5 h-5" />
+                                Cerrar Sesión
+                            </button>
                         </div>
                     </div>
-                </header>
+                )}
+            </header>
 
-                <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-                    <Outlet />
-                </main>
-            </div>
+            {/* ===== MAIN CONTENT ===== */}
+            <main className="flex-1 overflow-y-auto px-4 lg:px-6 pb-6">
+                <Outlet />
+            </main>
         </div>
     );
 };

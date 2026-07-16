@@ -1,22 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --brand-50: #29333a;
-  --brand-100: #333b41;
-  --brand-200: #bae6fd;
-  --brand-300: #7dd3fc;
-  --brand-400: #38bdf8;
-  --brand-500: #0ea5e9;
-  --brand-600: #0284c7;
-  --brand-700: #0369a1;
-  --brand-800: #075985;
-  --brand-900: #0c4a6e;
-  --brand-950: #082f49;
+  /* Brand colors derived from image */
+  --brand-50: #fefce8;
+  --brand-100: #fef9c3;
+  --brand-200: #fef08a;
+  --brand-300: #fde047;
+  --brand-400: #facc15;
+  --brand-500: #eab308;
+  --brand-600: #ca8a04;
+  --brand-700: #a16207;
+  --brand-800: #854d0e;
+  --brand-900: #713f12;
+  --brand-950: #422006;
 
-  /* Dynamic Theme Variables */
+  /* Surface colors */
   --color-surface: #ffffff;
-  --color-border: #4e5c6e;
-  --color-text: #0f172a;
+  --color-surface-glass: rgba(255, 255, 255, 0.35);
+  --color-border: rgba(0, 0, 0, 0.05);
+  --color-border-glass: rgba(255, 255, 255, 0.5);
+  --color-text: #1e293b;
+  --color-text-muted: #64748b;
 }
 
 @theme {
@@ -33,59 +37,69 @@
   --color-brand-950: var(--brand-950);
 
   --color-surface: var(--color-surface);
+  --color-surface-glass: var(--color-surface-glass);
   --color-border-custom: var(--color-border);
+  --color-border-glass: var(--color-border-glass);
   --color-text-custom: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
 }
 
 /* Global Background and Text */
 body {
-  background-color: var(--color-surface);
+  /* Soft gradient background matching the image */
+  background: linear-gradient(135deg, #cbd5e1 0%, #e2e8f0 50%, #f1f5f9 100%);
   color: var(--color-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Fallback to standard modern fonts */
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  /* Add an overlay to soften the gradient */
+  position: relative;
 }
 
-/* Smart Overrides: Target BACKGROUNDS and TEXT separately to preserve contrast */
-
-/* Backgrounds that should follow the 'Surface' color */
-.bg-white,
-.bg-gray-50,
-.bg-slate-50,
-.bg-slate-900,
-.bg-slate-800 {
-  background-color: var(--color-surface) !important;
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 50%, rgba(95, 57, 57, 0.2) 0%, rgba(255, 255, 255, 0.8) 100%);
+  pointer-events: none;
+  z-index: -1;
 }
 
-/* Borders that should follow the 'Border' color */
-.border-gray-100,
-.border-gray-200,
-.border-slate-100,
-.border-slate-800 {
-  border-color: var(--color-border) !important;
-}
-
-/* Text that should follow the 'Text' color */
-.text-gray-900,
-.text-gray-800,
-.text-slate-900 {
-  color: var(--color-text) !important;
-}
-
-/* Secondary text */
-.text-gray-500,
-.text-gray-400,
-.text-slate-400 {
-  color: var(--color-text);
-  opacity: 0.7;
+/* Utility for glass cards */
+.glass-panel {
+  background-color: var(--color-surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-glass);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
 }
 
 .dark {
-  --color-surface: #0f172a;
+  /* Minimal dark mode support for now, can expand later */
+  --color-surface: #a4aab9;
+  --color-surface-glass: rgba(163, 173, 196, 0.7);
   --color-border: #1e293b;
+  --color-border-glass: rgba(255, 255, 255, 0.5);
   --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+}
+
+body.dark {
+  background: linear-gradient(135deg, #b9bdc7 0%, #a5a4b4 50%, #064e3b 100%);
+}
+
+body.dark::before {
+  background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.8) 100%);
 }
 
 /* Global transitions */
 * {
-  transition-property: background-color, border-color, color, fill, stroke;
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 200ms;
 }

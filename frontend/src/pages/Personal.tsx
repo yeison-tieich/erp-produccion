@@ -5,7 +5,7 @@ import {
     Users, Plus, Search, User, CreditCard,
     Briefcase, DollarSign, Award, Activity,
     Clock, Trash2, Edit2, X, Check, Calendar,
-    ShieldCheck, Filter, FileText, ChevronRight, Wrench, Eye
+    ShieldCheck, Filter, FileText, ChevronRight, Wrench, Eye, Download
 } from 'lucide-react';
 import clsx from 'clsx';
 import { API_URL } from '../api';
@@ -246,6 +246,42 @@ export const PersonalPage = () => {
         return logDateStr >= start && logDateStr <= end;
     });
 
+    const exportToCSV = () => {
+        const rows = [
+            ['Colaborador', 'Cargo', 'Horas Pendientes', 'Valor Est. Salario']
+        ];
+        let totalHoras = 0;
+        let totalValor = 0;
+
+        personal.forEach(person => {
+            const pendingHours = person.registrosTiempo?.filter(r => r.tipo === 'Hora Extra' && !r.pagado).reduce((acc: number, curr: any) => acc + (Number(curr.horas) || 0), 0) || 0;
+            if (pendingHours === 0) return;
+
+            const estimatedValue = person.salario ? (Number(person.salario) / 240) * pendingHours * 1.25 : 0;
+            totalHoras += pendingHours;
+            totalValor += estimatedValue;
+
+            rows.push([
+                `"${person.nombre}"`,
+                `"${person.cargo}"`,
+                pendingHours.toString(),
+                estimatedValue.toFixed(2)
+            ]);
+        });
+
+        rows.push(['Total General', '', totalHoras.toString(), totalValor.toFixed(2)]);
+
+        const csvContent = "\uFEFF" + rows.map(e => e.join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `reporte_horas_extras_${formatToISODate(new Date())}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <div className="space-y-6 pb-20">
             <div className="flex justify-between items-center bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
@@ -258,19 +294,19 @@ export const PersonalPage = () => {
                 <div className="flex flex-wrap gap-4 relative z-10">
                     <button
                         onClick={() => setShowOvertimeSummary(true)}
-                        className="bg-orange-500 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-orange-600 transition shadow-xl shadow-orange-100 font-black text-lg"
+                        className="glass-panel text-orange-600 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
                     >
                         <Clock className="w-6 h-6" /> Resumen Horas Extras
                     </button>
                     <button
                         onClick={() => setShowBulkOvertimeModal(true)}
-                        className="bg-brand-600 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-brand-700 transition shadow-xl shadow-brand-100 font-black text-lg"
+                        className="glass-panel text-brand-700 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
                     >
                         <Activity className="w-6 h-6" /> Registro Masivo
                     </button>
                     <button
                         onClick={() => { setEditMode(false); setFormData({ nombre: '', cedula: '', cargo: '', salario: '', calificacion: '', kpi_puntualidad: '', eficiencia: '', area: '', activo: true }); setShowModal(true); }}
-                        className="bg-orange-800 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-slate-900 transition shadow-xl shadow-slate-100 font-black text-lg"
+                        className="glass-panel text-slate-800 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
                     >
                         <Plus className="w-6 h-6" /> Vincular Personal
                     </button>
@@ -365,7 +401,7 @@ export const PersonalPage = () => {
                             <div className="mt-8 space-y-3">
                                 <button
                                     onClick={() => fetchDetails(person.id)}
-                                    className="w-full bg-orange-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-900 transition shadow-lg shadow-slate-200"
+                                    className="w-full glass-panel text-brand-700 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-white/60 transition shadow-sm border border-white/50"
                                 >
                                     <Eye className="w-4 h-4" /> Ver Detalles
                                 </button>
@@ -376,20 +412,20 @@ export const PersonalPage = () => {
                                             setTimeLogForm({ id: null, tipo: 'Hora Extra', fecha: formatToISODate(new Date()), horas: '', motivo: '' });
                                             setShowTimeLogModal(true);
                                         }}
-                                        className="bg-orange-50 text-orange-700 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-orange-100 transition border border-orange-100"
+                                        className="glass-panel text-orange-600 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-white/60 transition border border-white/50 shadow-sm"
                                     >
                                         Extras/Permisos
                                     </button>
                                     <button
                                         onClick={() => { setSelectedPerson(person); setShowDotacionModal(true); }}
-                                        className="bg-blue-50 text-blue-700 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-blue-100 transition border border-blue-100"
+                                        className="glass-panel text-blue-600 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-white/60 transition border border-white/50 shadow-sm"
                                     >
                                         Registrar EPP
                                     </button>
                                 </div>
                                 <button
                                     onClick={() => handleLlegadaTarde(person)}
-                                    className="w-full mt-2 bg-red-50 text-red-700 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-100 transition border border-red-100 flex items-center justify-center gap-2"
+                                    className="w-full mt-2 glass-panel text-red-600 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/60 transition border border-white/50 shadow-sm flex items-center justify-center gap-2"
                                 >
                                     <Clock className="w-4 h-4" /> Llegada Tarde
                                 </button>
@@ -864,12 +900,18 @@ export const PersonalPage = () => {
                                 </table>
                             </div>
                         </div>
-                        <div className="p-8 bg-white border-t flex justify-end shrink-0">
+                        <div className="p-8 bg-white border-t flex justify-end shrink-0 gap-4">
+                            <button
+                                onClick={exportToCSV}
+                                className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-green-700 transition shadow-lg shadow-green-200"
+                            >
+                                <Download className="w-5 h-5" /> Exportar a CSV (Excel)
+                            </button>
                             <button
                                 onClick={() => window.print()}
                                 className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-slate-800 transition"
                             >
-                                <FileText className="w-5 h-5" /> Exportar / Imprimir Reporte
+                                <FileText className="w-5 h-5" /> Imprimir Reporte
                             </button>
                         </div>
                     </div>

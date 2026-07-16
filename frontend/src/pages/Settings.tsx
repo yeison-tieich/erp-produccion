@@ -811,7 +811,7 @@ export const Settings = () => {
                                             </div>
                                             <div>
                                                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest block">URL Base del Servidor</label>
-                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Debe incluir http:// o https:// y el puerto (ej: http://192.168.2.26:3000)</p>
+                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Debe incluir http:// o https:// (ej: https://erp-backend-pfbj.onrender.com)</p>
                                             </div>
                                         </div>
                                         <input

@@ -37,10 +37,8 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const allowedOrigins = [
   'https://erp-produccion-dun.vercel.app',
-  'http://localhost:5173',
-  'http://192.168.2.26:5173',
-  'capacitor://192.168.2.26:5173',
-  'http://localhost'
+  'capacitor:https://erp-backend-pfbj.onrender.com',
+
 ];
 
 if (process.env.FRONTEND_URL) {
