@@ -21,6 +21,16 @@ import toolsRoutes from './routes/tools.routes';
 import loansRoutes from './routes/loans.routes';
 import pedidosRoutes from './routes/pedidos.routes';
 import syncRoutes from './routes/sync.routes';
+import prisma from './prisma';
+
+(async () => {
+  try {
+    await prisma.$connect();
+    console.log("✅ Prisma conectado correctamente");
+  } catch (e) {
+    console.error("❌ Error conectando Prisma:", e);
+  }
+})();
 
 
 dotenv.config();
