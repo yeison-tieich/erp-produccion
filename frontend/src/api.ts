@@ -1,5 +1,5 @@
 // Intentar obtener la URL del servidor desde las variables de entorno de Vite, luego localStorage, o usar la de por defecto
-let currentBaseUrl = import.meta.env.VITE_API_URL || localStorage.getItem('SERVER_URL') || 'https://erp-backend-pfbj.onrender.com';
+let currentBaseUrl = import.meta.env.VITE_API_URL || localStorage.getItem('SERVER_URL') || 'https://mecaytro.parrandavallenatanuevayork.com';
 
 export let API_BASE_URL = currentBaseUrl;
 export let API_URL = `${currentBaseUrl}/api`;

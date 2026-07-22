@@ -37,7 +37,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const allowedOrigins = [
   'https://erp-produccion-dun.vercel.app',
-  'capacitor:https://erp-backend-pfbj.onrender.com',
+  'capacitor:https://mecaytro.parrandavallenatanuevayork.com',
 
 ];
 
