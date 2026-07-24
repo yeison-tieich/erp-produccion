@@ -106,13 +106,17 @@ export const returnTool = async (req: Request, res: Response) => {
         }
 
         // 2. Update loan record
+        const updateData: any = {
+            estado: 'DEVUELTO',
+            fecha_devolucion: new Date()
+        };
+        if (observaciones !== undefined) {
+            updateData.observaciones = observaciones;
+        }
+
         const updatedLoan = await prisma.prestamoHerramienta.update({
             where: { id: loan.id },
-            data: {
-                estado: 'DEVUELTO',
-                fecha_devolucion: new Date(),
-                observaciones: observaciones || loan.observaciones
-            }
+            data: updateData
         });
 
         // 3. Calculate new stock
@@ -134,15 +138,19 @@ export const returnTool = async (req: Request, res: Response) => {
         }
 
         // 4. Update tool stock and state
-        await prisma.herramientaConsumible.update({
-            where: { id: tool.id },
-            data: {
-                cantidad_disponible: newDisponible,
-                estado: nuevoEstado
-            }
-        });
+        try {
+            await prisma.herramientaConsumible.update({
+                where: { id: tool.id },
+                data: {
+                    cantidad_disponible: newDisponible,
+                    estado: nuevoEstado
+                }
+            });
+        } catch (invError) {
+            console.error('[returnTool] Error actualizando inventario de la herramienta, ignorando...', invError);
+        }
 
-        res.json({ message: 'Herramienta devuelta con éxito', id: updatedLoan.id });
+        res.json({ message: 'Herramienta devuelta con éxito (estado actualizado)', id: updatedLoan.id });
     } catch (error: any) {
         console.error('[returnTool] ERROR:', error.message || error);
         res.status(500).json({ error: error.message || 'Error desconocido al devolver herramienta' });

@@ -1,6 +1,6 @@
 # 02. Base de Datos - Modelo de Datos (Prisma)
 
-El sistema utiliza **SQLite** como motor de base de datos principal, gestionado a través de **Prisma ORM**. A continuación se detallan los modelos principales y sus relaciones.
+El sistema utiliza **Supabase** como motor de base de datos principal, gestionado a través de **Prisma ORM**. A continuación se detallan los modelos principales y sus relaciones.
 
 ## Modelos Principales
 
@@ -57,4 +57,4 @@ Para garantizar la funcionalidad sin conexión, la aplicación móvil mantiene u
 ---
 
 ## Configuración del Sistema (`Configuracion`)
-- Almacena variables globales como la densidad del acero por defecto, horas de turno y las **API Keys** necesarias para la integración de IA.
+- Almacena variables globales como la densidad del acero por defecto y horas de turno.

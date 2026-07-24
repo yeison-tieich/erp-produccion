@@ -144,27 +144,32 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         // 12. Producción semanal (últimos 7 días)
         const produccion_semanal = [];
         const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        
+        const fechaInicioSemana = new Date();
+        fechaInicioSemana.setDate(fechaInicioSemana.getDate() - 6);
+        fechaInicioSemana.setHours(0, 0, 0, 0);
+
+        const tareasUltimaSemana = await prisma.tareaProduccion.findMany({
+            where: {
+                estado_tarea: 'Completada',
+                fecha_hora_fin: { gte: fechaInicioSemana },
+                ...(area && area !== 'TODAS' ? areaFilter : {})
+            },
+            select: { cantidad_buena: true, fecha_hora_fin: true }
+        });
+
         for (let i = 6; i >= 0; i--) {
             const fecha = new Date();
             fecha.setDate(fecha.getDate() - i);
-            const inicioDia = new Date(fecha.setHours(0, 0, 0, 0));
-            const finDia = new Date(fecha.setHours(23, 59, 59, 999));
+            const inicioDia = new Date(fecha.setHours(0, 0, 0, 0)).getTime();
+            const finDia = new Date(fecha.setHours(23, 59, 59, 999)).getTime();
 
-            const tareasDelDia = await prisma.tareaProduccion.findMany({
-                where: {
-                    estado_tarea: 'Completada',
-                    fecha_hora_fin: {
-                        gte: inicioDia,
-                        lte: finDia
-                    },
-                    ...(area && area !== 'TODAS' ? areaFilter : {})
-                },
-                select: { cantidad_buena: true }
-            });
+            const piezas = tareasUltimaSemana
+                .filter(t => t.fecha_hora_fin && t.fecha_hora_fin.getTime() >= inicioDia && t.fecha_hora_fin.getTime() <= finDia)
+                .reduce((sum, t) => sum + (t.cantidad_buena || 0), 0);
 
-            const piezas = tareasDelDia.reduce((sum, t) => sum + (t.cantidad_buena || 0), 0);
             produccion_semanal.push({
-                dia: diasSemana[inicioDia.getDay()],
+                dia: diasSemana[new Date(inicioDia).getDay()],
                 piezas
             });
         }
@@ -174,32 +179,32 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         if (!area || area === 'TODAS') {
             const areas = ['TORNOS', 'MECANIZADO', 'SOLDADURA', 'TROQUELERIA'];
             
-            for (const a of areas) {
-                const tareasArea = await prisma.tareaProduccion.findMany({
-                    where: {
-                        estado_tarea: 'Completada',
-                        fecha_hora_fin: { gte: firstDayOfMonth },
-                        maquina: { area_produccion: a }
-                    },
-                    select: { cantidad_buena: true, duracion_real_min: true }
-                });
+            const tareasCompletadasAreas = await prisma.tareaProduccion.findMany({
+                where: {
+                    estado_tarea: 'Completada',
+                    fecha_hora_fin: { gte: firstDayOfMonth },
+                    maquina: { area_produccion: { in: areas } }
+                },
+                select: { cantidad_buena: true, duracion_real_min: true, maquina: { select: { area_produccion: true } } }
+            });
+            const ordenesAreas = await prisma.ordenTrabajo.findMany({
+                where: {
+                    tareas: { some: { maquina: { area_produccion: { in: areas } } } }
+                },
+                select: { tareas: { select: { maquina: { select: { area_produccion: true } } } } }
+            });
 
+            for (const a of areas) {
+                const tareasArea = tareasCompletadasAreas.filter(t => t.maquina?.area_produccion === a);
                 const piezas = tareasArea.reduce((sum, t) => sum + (t.cantidad_buena || 0), 0);
                 const tiempo = tareasArea.reduce((sum, t) => sum + (t.duracion_real_min || 0), 0);
+                const ordenesCount = ordenesAreas.filter(o => o.tareas.some(t => t.maquina?.area_produccion === a)).length;
                 
                 comparativo_areas.push({
                     area: a,
                     piezas,
                     tiempo_total_min: tiempo,
-                    ordenes: await prisma.ordenTrabajo.count({
-                        where: {
-                            tareas: {
-                                some: {
-                                    maquina: { area_produccion: a }
-                                }
-                            }
-                        }
-                    })
+                    ordenes: ordenesCount
                 });
             }
         }

@@ -16,7 +16,7 @@ import operationsRoutes from './routes/operations.routes';
 import specialProjectsRoutes from './routes/specialProjects.routes';
 import maintenanceRoutes from './routes/maintenance.routes';
 import settingsRoutes from './routes/settings.routes';
-import aiRoutes from './routes/ai.routes';
+
 import toolsRoutes from './routes/tools.routes';
 import loansRoutes from './routes/loans.routes';
 import pedidosRoutes from './routes/pedidos.routes';
@@ -82,7 +82,7 @@ app.use('/api/operations', operationsRoutes);
 app.use('/api/special-projects', specialProjectsRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/ai', aiRoutes);
+
 app.use('/api/tools', toolsRoutes);
 app.use('/api/loans', loansRoutes);
 app.use('/api/pedidos', pedidosRoutes);

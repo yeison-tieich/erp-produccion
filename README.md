@@ -30,7 +30,6 @@ Para una comprensión profunda del sistema, consulte los siguientes documentos e
 ---
 
 ## 🛠 Características Destacadas
-- **Lectura Inteligente de PDFs**: Carga órdenes de compra y extrae datos automáticamente.
 - **Control de Proyectos Especiales**: Seguimiento granular de fases y piezas.
 - **Mantenimiento Preventivo**: Alertas automáticas para cuidado de maquinaria.
 - **Arquitectura Offline-First**: Funcionalidad completa en dispositivos móviles sin conexión, con sincronización automática al recuperar internet.

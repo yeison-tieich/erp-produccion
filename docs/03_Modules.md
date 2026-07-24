@@ -15,8 +15,7 @@ El sistema se divide en varios módulos funcionales diseñados para cubrir las n
 
 ## 3. Órdenes de Trabajo (OT)
 - **Producción en Serie**: Creación de OTs basadas en productos predefinidos.
-- **Smart PO PDF Reader**: Extracción automática de datos de órdenes de compra en PDF usando IA.
-- **Automatización**: Generación de rutas de fabricación automáticas e impresión de etiquetas.
+- **Automatización**: Generación de rutas de fabricación a partir del catálogo de operaciones.
 - **Reportes**: Generación de archivos PDF detallados (Orden de Trabajo) con BOM y rutas.
 
 ## 4. Proyectos Especiales

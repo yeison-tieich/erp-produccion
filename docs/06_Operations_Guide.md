@@ -13,7 +13,6 @@ El backend requiere un archivo `.env` en la carpeta `/backend` con las siguiente
 - `PORT`: Puerto donde correrá el servidor (default: 3000).
 - `DATABASE_URL`: Ruta al archivo SQLite (ej: `file:./prisma/dev.db`).
 - `JWT_SECRET`: Llave secreta para la firma de tokens.
-- `OPENROUTER_API_KEY`: Para las funcionalidades de IA.
 - `CLOUDINARY_URL`: Para el almacenamiento de imágenes en la nube.
 
 ## Instalación y Ejecución

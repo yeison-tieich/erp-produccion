@@ -11,7 +11,7 @@ Control MT es un sistema de gestión de producción (ERP/MES) diseñado para opt
 - **ORM**: Prisma
 - **Autenticación**: JWT (JsonWebToken)
 - **CORS**: Configurado para dominios específicos (Vercel, localhost, IP local)
-- **Manejo de Archivos**: Multer para subida de planos (PDF) e imágenes.
+- **Manejo de Archivos**: Multer para subida de imágenes. Cloudinary para almacenamiento en la nube.
 
 ### Frontend
 - **Librería**: React.js 18
@@ -32,7 +32,7 @@ Control MT es un sistema de gestión de producción (ERP/MES) diseñado para opt
 ### Backend (src/)
 1. **Controllers**: Gestionan la lógica de negocio y las respuestas HTTP.
 2. **Routes**: Definen los endpoints de la API (ej. `/api/orders`, `/api/inventory`).
-3. **Services**: Abstraen lógica compleja, como la integración con modelos de IA.
+3. **Services**: Abstraen lógica compleja reutilizable (ej. utilidades de Cloudinary).
 4. **Middleware**: Validaciones, autenticación y procesamiento de archivos.
 5. **Utils**: Funciones de ayuda compartidas.
 
