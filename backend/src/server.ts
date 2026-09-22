@@ -40,6 +40,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const allowedOrigins = [
   'https://erp-produccion-dun.vercel.app',
+  'capacitor://www.mecaytro.parrandavallenatanuevayork.com',
   'capacitor://localhost',
   'http://localhost',
   'https://localhost',
