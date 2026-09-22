@@ -21,9 +21,12 @@ import toolsRoutes from './routes/tools.routes';
 import loansRoutes from './routes/loans.routes';
 import pedidosRoutes from './routes/pedidos.routes';
 import syncRoutes from './routes/sync.routes';
-
+import usersRoutes from './routes/users.routes';
+import financesRoutes from './routes/finances.routes';
+import qualityRoutes from './routes/quality.routes';
 
 dotenv.config();
+
 
 if (!process.env.JWT_SECRET) {
   console.warn('⚠️ WARNING: JWT_SECRET is not defined. Using temporary fallback. PLEASE SET THIS IN RAILWAY VARIABLES.');
@@ -37,7 +40,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const allowedOrigins = [
   'https://erp-produccion-dun.vercel.app',
-  'capacitor:https://mecaytro.parrandavallenatanuevayork.com',
+  'capacitor://localhost',
+  'http://localhost',
+  'https://localhost',
 
 ];
 
@@ -50,7 +55,7 @@ app.use(cors({
     // allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     // Para simplificar el despliegue en Vercel (URLs dinámicas), podemos permitir todo o chequear la lista
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production' || origin.endsWith('.vercel.app')) {
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('capacitor://') || process.env.NODE_ENV !== 'production' || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -87,9 +92,13 @@ app.use('/api/tools', toolsRoutes);
 app.use('/api/loans', loansRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/finances', financesRoutes);
+app.use('/api/quality', qualityRoutes);
 
 
 app.get('/', (req, res) => {
+
   res.send('Control MT API is running');
 });
 
