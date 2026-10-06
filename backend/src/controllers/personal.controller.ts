@@ -143,6 +143,18 @@ export const toggleTimeLogPayment = async (req: Request, res: Response) => {
     }
 };
 
+export const markAllOvertimePaid = async (_req: Request, res: Response) => {
+    try {
+        const result = await prisma.registroTiempoLaboral.updateMany({
+            where: { tipo: 'Hora Extra', pagado: false },
+            data: { pagado: true }
+        });
+        res.json({ count: result.count });
+    } catch (error) {
+        res.status(500).json({ error: 'Error marking overtime as paid' });
+    }
+};
+
 export const updateTimeLog = async (req: Request, res: Response) => {
     const { logId } = req.params;
     const { tipo, fecha, horas, motivo } = req.body;

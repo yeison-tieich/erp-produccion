@@ -1,58 +1,45 @@
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Play, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Play, CheckCircle, Clock, AlertTriangle, Plus, Filter, User, Edit3, Trash2, CheckSquare, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '../store/auth.store';
 import { API_URL } from '../api';
 
-interface Task {
-    id: number;
-    estado_tarea: 'Pendiente' | 'En Progreso' | 'Completada';
-    personal_id: number | null;
-    maquina_id: number | null;
-    ordenTrabajo: {
-        numero_ot: string;
-        producto: {
-            nombre_producto: string;
-        };
-        cantidad_fabricar: number;
-    };
-    rutaFabricacion: {
-        nombre_operacion: string;
-        centro_trabajo: string;
-    };
-    personal?: {
-        nombre: string;
-    } | null;
-    maquina?: {
-        codigo: string;
-        area_produccion: string;
-    } | null;
-}
-
-import { taskRepository, TaskLocal } from '../repositories/taskRepository';
-
 export const Tasks = () => {
-    const [tasks, setTasks] = useState<any[]>([]);
     const { user } = useAuthStore();
-    const [loading, setLoading] = useState(true);
-    
-    // Filters
-    const [areaFilter, setAreaFilter] = useState('ALL');
-    const [machineFilter, setMachineFilter] = useState('ALL');
+    const isWorker = user?.rol === 'Operario';
 
-    // Modal State for Finishing Task
-    const [finishingTask, setFinishingTask] = useState<any | null>(null);
-    const [goodQty, setGoodQty] = useState('');
-    const [badQty, setBadQty] = useState('');
-    const [stopTime, setStopTime] = useState('');
-    const [durationReal, setDurationReal] = useState('');
+    const [tasks, setTasks] = useState<any[]>([]);
+    const [personalList, setPersonalList] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    // Filters for Admin
+    const [workerFilter, setWorkerFilter] = useState('ALL');
+    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [priorityFilter, setPriorityFilter] = useState('ALL');
+    const [dateFilter, setDateFilter] = useState('');
+
+    // Modal / Action States
+    const [observationTask, setObservationTask] = useState<any | null>(null);
+    const [workerComment, setWorkerComment] = useState('');
+    const [editTaskModal, setEditTaskModal] = useState<any | null>(null);
 
     const fetchTasks = async () => {
         try {
-            const data = await taskRepository.getAll();
-            setTasks(data);
+            setLoading(true);
+            const params: any = {};
+            if (isWorker && user?.id) {
+                params.personal_id = user.id; // Or mapped personal_id
+            } else {
+                if (workerFilter !== 'ALL') params.personal_id = workerFilter;
+                if (statusFilter !== 'ALL') params.estado = statusFilter;
+                if (priorityFilter !== 'ALL') params.prioridad = priorityFilter;
+                if (dateFilter) params.fecha = dateFilter;
+            }
+
+            const res = await axios.get(`${API_URL}/tasks`, { params });
+            setTasks(res.data);
         } catch (error) {
             console.error(error);
         } finally {
@@ -60,222 +47,356 @@ export const Tasks = () => {
         }
     };
 
+    const fetchPersonal = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/personal`);
+            setPersonalList(res.data);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
     useEffect(() => {
         fetchTasks();
-    }, []);
+        if (!isWorker) {
+            fetchPersonal();
+        }
+    }, [workerFilter, statusFilter, priorityFilter, dateFilter, isWorker]);
 
-    const handleStartTask = async (task: any) => {
+    // Worker / Admin Actions
+    const handleStartTask = async (taskId: number) => {
         try {
-            await taskRepository.startTask(task.id_local, task.id || task.id_server);
+            await axios.post(`${API_URL}/tasks/${taskId}/start`);
             fetchTasks();
         } catch (error) {
-            alert('Error al iniciar tarea');
+            try {
+                await axios.put(`${API_URL}/tasks/${taskId}/worker-status`, {
+                    estado_tarea: 'Iniciada'
+                });
+                fetchTasks();
+            } catch (e) {
+                alert('Error al iniciar tarea');
+            }
         }
     };
 
-    const handleFinishTaskSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!finishingTask) return;
+    const handleFinishTask = async (taskId: number) => {
+        const buena = prompt("Cantidad BUENA:", "0");
+        const mala = prompt("Cantidad MALA (Scrap):", "0");
+        if (buena === null || mala === null) return;
 
         try {
-            await taskRepository.finishTask(finishingTask.id_local, finishingTask.id || finishingTask.id_server, {
-                cantidad_buena: Number(goodQty),
-                cantidad_mala: Number(badQty),
-                tiempo_parada_min: Number(stopTime),
-                duracion_real_min: durationReal ? Number(durationReal) : undefined
+            await axios.post(`${API_URL}/tasks/${taskId}/finish`, {
+                cantidad_buena: Number(buena),
+                cantidad_mala: Number(mala),
+                tiempo_parada_min: 0
             });
-
-            setFinishingTask(null);
-            setGoodQty('');
-            setBadQty('');
-            setStopTime('');
-            setDurationReal('');
             fetchTasks();
         } catch (error) {
-            alert('Error al finalizar tarea');
+            try {
+                await axios.put(`${API_URL}/tasks/${taskId}/worker-status`, {
+                    estado_tarea: 'Finalizada'
+                });
+                fetchTasks();
+            } catch (e) {
+                alert('Error al finalizar tarea');
+            }
         }
     };
 
-    // Derived Data for Filters
-    const areas = Array.from(new Set(tasks.map(t => t.maquina?.area_produccion).filter(Boolean))) as string[];
-    const machines = Array.from(new Set(tasks.map(t => t.maquina?.codigo).filter(Boolean))) as string[];
+    const handleSaveObservation = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!observationTask) return;
+        try {
+            await axios.put(`${API_URL}/tasks/${observationTask.id}/worker-status`, {
+                comentarios: workerComment
+            });
+            setObservationTask(null);
+            setWorkerComment('');
+            fetchTasks();
+            alert('Observación guardada correctamente');
+        } catch (error) {
+            alert('Error al guardar observación');
+        }
+    };
 
-    const filteredTasks = tasks.filter(task => {
-        if (task.estado_tarea === 'Completada') return false;
-        const matchesArea = areaFilter === 'ALL' || task.maquina?.area_produccion === areaFilter;
-        const matchesMachine = machineFilter === 'ALL' || task.maquina?.codigo === machineFilter;
-        return matchesArea && matchesMachine;
-    });
+    // Admin Actions
+    const handleDeleteTask = async (taskId: number) => {
+        if (!window.confirm('¿Desea eliminar esta tarea?')) return;
+        try {
+            await axios.delete(`${API_URL}/tasks/${taskId}`);
+            fetchTasks();
+        } catch (error) {
+            alert('Error al eliminar tarea');
+        }
+    };
+
+    const handleReassignWorker = async (taskId: number, newPersonalId: string) => {
+        try {
+            await axios.put(`${API_URL}/tasks/${taskId}/assign`, {
+                personal_id: newPersonalId ? Number(newPersonalId) : null
+            });
+            fetchTasks();
+        } catch (error) {
+            alert('Error al reasignar trabajador');
+        }
+    };
+
+    // KPI Calculations
+    const totalPending = tasks.filter(t => t.estado_tarea === 'Pendiente').length;
+    const totalInProcess = tasks.filter(t => t.estado_tarea === 'Iniciada' || t.estado_tarea === 'En Progreso').length;
+    const totalFinished = tasks.filter(t => t.estado_tarea === 'Finalizada' || t.estado_tarea === 'Completada').length;
+    const totalDelayed = tasks.filter(t => {
+        if (t.fecha && t.estado_tarea !== 'Finalizada' && t.estado_tarea !== 'Completada') {
+            return new Date(t.fecha) < new Date();
+        }
+        return false;
+    }).length;
+
+    const complianceRate = tasks.length > 0 ? Math.round((totalFinished / tasks.length) * 100) : 0;
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <h1 className="text-2xl font-bold text-gray-800">Mis Tareas Asignadas</h1>
-                
-                <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                    <select 
-                        className="bg-white border rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={areaFilter}
-                        onChange={e => setAreaFilter(e.target.value)}
-                    >
-                        <option value="ALL">Todas las Áreas</option>
-                        {areas.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                    
-                    <select 
-                        className="bg-white border rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={machineFilter}
-                        onChange={e => setMachineFilter(e.target.value)}
-                    >
-                        <option value="ALL">Todas las Máquinas</option>
-                        {machines.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
+                <div>
+                    <h1 className="text-3xl font-black text-gray-900">
+                        {isWorker ? 'Mis Tareas Asignadas' : 'Gestión Global de Tareas'}
+                    </h1>
+                    <p className="text-gray-500 font-medium">
+                        {isWorker ? 'Seguimiento de labores y tiempos asignados' : 'Panel de control de operarios y cumplimiento de tareas'}
+                    </p>
                 </div>
             </div>
 
+            {/* KPI Cards for Administrator */}
+            {!isWorker && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Pendientes</p>
+                        <p className="text-2xl font-black text-yellow-600 mt-1">{totalPending}</p>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">En Proceso</p>
+                        <p className="text-2xl font-black text-blue-600 mt-1">{totalInProcess}</p>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Finalizadas</p>
+                        <p className="text-2xl font-black text-green-600 mt-1">{totalFinished}</p>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Retrasadas</p>
+                        <p className="text-2xl font-black text-red-600 mt-1">{totalDelayed}</p>
+                    </div>
+                    <div className="bg-brand-600 text-white rounded-2xl p-4 shadow-sm">
+                        <p className="text-xs font-bold text-brand-200 uppercase tracking-wider">% Cumplimiento</p>
+                        <p className="text-2xl font-black mt-1">{complianceRate}%</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Filters Bar for Administrator */}
+            {!isWorker && (
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-wrap gap-4 items-center">
+                    <div className="flex items-center gap-2 text-gray-500 font-bold text-sm">
+                        <Filter className="w-4 h-4" />
+                        Filtros:
+                    </div>
+
+                    <select
+                        className="bg-gray-50 border rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={workerFilter}
+                        onChange={e => setWorkerFilter(e.target.value)}
+                    >
+                        <option value="ALL">Todos los Trabajadores</option>
+                        {personalList.map(p => (
+                            <option key={p.id} value={p.id}>{p.nombre}</option>
+                        ))}
+                    </select>
+
+                    <select
+                        className="bg-gray-50 border rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={statusFilter}
+                        onChange={e => setStatusFilter(e.target.value)}
+                    >
+                        <option value="ALL">Todos los Estados</option>
+                        <option value="Pendiente">Pendiente</option>
+                        <option value="Iniciada">Iniciada / En Progreso</option>
+                        <option value="Finalizada">Finalizada / Completada</option>
+                    </select>
+
+                    <select
+                        className="bg-gray-50 border rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={priorityFilter}
+                        onChange={e => setPriorityFilter(e.target.value)}
+                    >
+                        <option value="ALL">Todas las Prioridades</option>
+                        <option value="ALTA">Alta</option>
+                        <option value="MEDIA">Media</option>
+                        <option value="BAJA">Baja</option>
+                    </select>
+
+                    <input
+                        type="date"
+                        className="bg-gray-50 border rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={dateFilter}
+                        onChange={e => setDateFilter(e.target.value)}
+                    />
+                </div>
+            )}
+
+            {/* Task List / Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredTasks.map((task) => (
-                    <div key={task.id} className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden hover:shadow-lg transition">
-                        <div className="p-5">
-                            <div className="flex justify-between items-start mb-4">
-                                <span className={clsx(
-                                    "px-2 py-1 text-xs font-semibold rounded-full",
-                                    task.estado_tarea === 'Pendiente' ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"
-                                )}>
-                                    {task.estado_tarea}
-                                </span>
-                                <span className="text-sm text-gray-400 font-mono">{task.ordenTrabajo.numero_ot}</span>
-                            </div>
+                {tasks.map((task) => {
+                    const isTaskFinished = task.estado_tarea === 'Finalizada' || task.estado_tarea === 'Completada';
+                    const isTaskStarted = task.estado_tarea === 'Iniciada' || task.estado_tarea === 'En Progreso';
 
-                            <h3 className="font-bold text-lg text-gray-900 mb-1">{task.rutaFabricacion.nombre_operacion}</h3>
-                            <div className="flex justify-between items-center mb-4">
-                                <p className="text-sm text-gray-500">{task.maquina?.codigo || task.rutaFabricacion.centro_trabajo}</p>
-                                {task.personal && (
-                                    <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded font-bold uppercase tracking-wider">
-                                        Operario: {task.personal.nombre}
+                    return (
+                        <div key={task.id} className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition flex flex-col justify-between">
+                            <div>
+                                <div className="flex justify-between items-start mb-3">
+                                    <span className={clsx(
+                                        "px-3 py-1 text-xs font-black rounded-full uppercase tracking-wider",
+                                        task.estado_tarea === 'Pendiente' && "bg-yellow-100 text-yellow-800",
+                                        isTaskStarted && "bg-blue-100 text-blue-800",
+                                        isTaskFinished && "bg-green-100 text-green-800"
+                                    )}>
+                                        {task.estado_tarea}
                                     </span>
-                                )}
+                                    <span className={clsx(
+                                        "px-2.5 py-0.5 text-[10px] font-black rounded-lg uppercase",
+                                        task.prioridad === 'ALTA' ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
+                                    )}>
+                                        Prioridad: {task.prioridad || 'MEDIA'}
+                                    </span>
+                                </div>
+
+                                <h3 className="font-black text-xl text-gray-900 mb-1">
+                                    {task.rutaFabricacion?.nombre_operacion || 'Operación de Producción'}
+                                </h3>
+                                <p className="text-xs text-gray-400 font-mono mb-4">
+                                    OT: {task.ordenTrabajo?.numero_ot} | {task.ordenTrabajo?.producto?.nombre_producto}
+                                </p>
+
+                                <div className="space-y-2 bg-gray-50 p-4 rounded-2xl mb-4 text-xs font-medium text-gray-600">
+                                    <div className="flex justify-between">
+                                        <span>Empleado Asignado:</span>
+                                        <span className="font-bold text-gray-900">{task.personal?.nombre || 'Sin Asignar'}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Fecha Límite:</span>
+                                        <span className="font-bold text-gray-900">
+                                            {task.fecha ? new Date(task.fecha).toLocaleDateString() : 'N/A'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Tiempo Estimado:</span>
+                                        <span className="font-bold text-gray-900">{task.tiempo_estimado_min || 0} min</span>
+                                    </div>
+                                    {task.comentarios && (
+                                        <div className="mt-2 pt-2 border-t text-gray-500 italic">
+                                            "{task.comentarios}"
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
-                            <div className="bg-gray-50 rounded-lg p-3 mb-4 space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Producto:</span>
-                                    <span className="font-medium text-gray-900">{task.ordenTrabajo.producto.nombre_producto}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Cantidad OT:</span>
-                                    <span className="font-medium text-gray-900">{task.ordenTrabajo.cantidad_fabricar}</span>
-                                </div>
-                                {task.maquina?.area_produccion && (
-                                    <div className="flex justify-between text-sm border-t pt-2 mt-2">
-                                        <span className="text-gray-500">Área:</span>
-                                        <span className="font-medium text-gray-900">{task.maquina.area_produccion}</span>
+                            {/* Actions according to Role */}
+                            <div className="pt-2 border-t border-gray-100 flex flex-col gap-2">
+                                {!isTaskFinished && (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleStartTask(task.id)}
+                                            disabled={isTaskStarted}
+                                            className={clsx(
+                                                "flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition",
+                                                isTaskStarted
+                                                    ? "bg-blue-50 text-blue-500 border border-blue-200 cursor-not-allowed opacity-80"
+                                                    : "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
+                                            )}
+                                            title={isTaskStarted ? "Tarea ya está iniciada" : "Iniciar Tarea"}
+                                        >
+                                            <Play className="w-4 h-4" /> {isTaskStarted ? 'Iniciada' : 'Iniciar Tarea'}
+                                        </button>
+
+                                        <button
+                                            onClick={() => handleFinishTask(task.id)}
+                                            className="flex-1 bg-green-600 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-green-700 transition shadow-sm"
+                                            title="Finalizar Tarea"
+                                        >
+                                            <CheckCircle className="w-4 h-4" /> Finalizar Tarea
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setObservationTask(task);
+                                                setWorkerComment(task.comentarios || '');
+                                            }}
+                                            className="px-3 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold text-xs hover:bg-gray-200 transition"
+                                            title="Observaciones"
+                                        >
+                                            <MessageSquare className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {!isWorker && (
+                                    <div className="flex gap-2 items-center pt-1">
+                                        <select
+                                            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-2 py-2 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
+                                            value={task.personal_id || ''}
+                                            onChange={(e) => handleReassignWorker(task.id, e.target.value)}
+                                        >
+                                            <option value="">-- Reasignar Operario --</option>
+                                            {personalList.map(p => (
+                                                <option key={p.id} value={p.id}>{p.nombre}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={() => handleDeleteTask(task.id)}
+                                            className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition"
+                                            title="Eliminar Tarea"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 )}
                             </div>
-
-                            <div className="flex gap-3">
-                                {task.estado_tarea === 'Pendiente' ? (
-                                    <button
-                                        onClick={() => handleStartTask(task)}
-                                        className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2"
-                                    >
-                                        <Play className="w-4 h-4" /> Iniciar
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => setFinishingTask(task)}
-                                        className="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2"
-                                    >
-                                        <CheckCircle className="w-4 h-4" /> Finalizar
-                                    </button>
-                                )}
-                            </div>
                         </div>
-                    </div>
-                ))}
-                {filteredTasks.length === 0 && !loading && (
-                    <div className="col-span-full text-center py-20 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
-                        <div className="text-gray-400 font-medium">No se encontraron tareas con los filtros seleccionados.</div>
-                    </div>
-                )}
+                    );
+                })}
             </div>
 
-            {/* Finish Task Modal */}
-            {finishingTask && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
-                        <h3 className="text-lg font-bold mb-4">Finalizar Tarea</h3>
-                        <p className="text-sm text-gray-500 mb-4">
-                            {finishingTask.rutaFabricacion.nombre_operacion} - {finishingTask.ordenTrabajo.numero_ot}
+            {/* Modal for Worker Observations */}
+            {observationTask && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] max-w-md w-full p-8 shadow-2xl">
+                        <h3 className="text-2xl font-black text-gray-900 mb-2">Agregar Observación</h3>
+                        <p className="text-xs text-gray-500 font-bold mb-4">
+                            {observationTask.rutaFabricacion?.nombre_operacion}
                         </p>
 
-                        <form onSubmit={handleFinishTaskSubmit} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-green-700">Cant. Buena</label>
-                                    <input
-                                        type="number"
-                                        className="w-full px-3 py-2 border border-green-200 bg-green-50 rounded-lg focus:ring-green-500"
-                                        value={goodQty}
-                                        onChange={e => setGoodQty(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-red-700">Cant. Mala</label>
-                                    <input
-                                        type="number"
-                                        className="w-full px-3 py-2 border border-red-200 bg-red-50 rounded-lg focus:ring-red-500"
-                                        value={badQty}
-                                        onChange={e => setBadQty(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                            </div>
+                        <form onSubmit={handleSaveObservation} className="space-y-4">
+                            <textarea
+                                className="w-full p-4 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-medium min-h-[120px]"
+                                placeholder="Escriba sus observaciones sobre la tarea..."
+                                value={workerComment}
+                                onChange={e => setWorkerComment(e.target.value)}
+                                required
+                            ></textarea>
 
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-gray-700">Tiempo de Parada (min)</label>
-                                <div className="relative">
-                                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                    <input
-                                        type="number"
-                                        className="w-full pl-10 pr-3 py-2 border rounded-lg"
-                                        value={stopTime}
-                                        onChange={e => setStopTime(e.target.value)}
-                                        placeholder="0"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-blue-700">Tiempo Trabajo Real (min)</label>
-                                <div className="relative">
-                                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400" />
-                                    <input
-                                        type="number"
-                                        className="w-full pl-10 pr-3 py-2 border border-blue-200 bg-blue-50 rounded-lg focus:ring-blue-500"
-                                        value={durationReal}
-                                        onChange={e => setDurationReal(e.target.value)}
-                                        placeholder="Opcional: override reloj"
-                                    />
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Si se deja vacío, se usará el tiempo del cronómetro.</p>
-                            </div>
-
-                            <div className="flex justify-end gap-3 mt-6">
+                            <div className="flex gap-3">
                                 <button
                                     type="button"
-                                    onClick={() => setFinishingTask(null)}
-                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                                    onClick={() => setObservationTask(null)}
+                                    className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold text-sm"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                    className="flex-1 bg-brand-600 text-white py-3 rounded-xl font-bold text-sm shadow-md"
                                 >
-                                    Confirmar Finalización
+                                    Guardar
                                 </button>
                             </div>
                         </form>
@@ -285,3 +406,4 @@ export const Tasks = () => {
         </div>
     );
 };
+

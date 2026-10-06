@@ -9,11 +9,14 @@ export const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const setAuth = useAuthStore((state) => state.setAuth);
     const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError('');
+        setIsSubmitting(true);
         try {
             const res = await axios.post(`${API_URL}/auth/login`, { email, password });
             setAuth(res.data.user, res.data.token);
@@ -24,8 +27,16 @@ export const Login = () => {
             } else {
                 navigate('/');
             }
-        } catch (err) {
-            setError('Credenciales inválidas');
+        } catch (err: any) {
+            if (!err.response) {
+                setError('No hay conexión con el servidor. Verifica que el teléfono tenga Internet.');
+            } else if (err.response.status === 401) {
+                setError('Correo o contraseña incorrectos.');
+            } else {
+                setError(`El servidor respondió con error (${err.response.status}).`);
+            }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -68,9 +79,10 @@ export const Login = () => {
 
                     <button
                         type="submit"
+                        disabled={isSubmitting}
                         className="w-full bg-brand-600 text-white py-2 px-4 rounded-lg hover:bg-brand-700 transition-colors font-medium shadow-sm hover:shadow-md"
                     >
-                        Ingresar
+                        {isSubmitting ? 'Conectando...' : 'Ingresar'}
                     </button>
                 </form>
             </div>

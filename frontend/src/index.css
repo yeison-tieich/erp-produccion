@@ -58,6 +58,19 @@ body {
   position: relative;
 }
 
+input,
+textarea,
+select {
+  color: var(--color-text);
+  caret-color: var(--color-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
 body::before {
   content: '';
   position: fixed;

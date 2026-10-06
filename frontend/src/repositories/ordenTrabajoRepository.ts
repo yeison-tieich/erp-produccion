@@ -11,6 +11,7 @@ export interface OrdenTrabajoLocal {
     numero_ot: string;
     tipo_orden?: string;
     producto_id?: number;
+    proyecto_especial_id?: number | null;
     cantidad_pedido?: number;
     cantidad_fabricar?: number;
     descripcion_proyecto?: string;
@@ -18,6 +19,7 @@ export interface OrdenTrabajoLocal {
     orden_compra_cliente?: string;
     prioridad?: string;
     estado_ot?: string;
+    estado_calidad?: string;
     fecha_entrega_req?: string;
     producto?: any;
     tareas?: any[];

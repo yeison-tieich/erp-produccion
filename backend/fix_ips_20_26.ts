@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  const newIp = '192.168.2.26';
+  const newIp = '192.168.20.26';
 
   console.log(`Updating all old IPs to ${newIp} in database...`);
 

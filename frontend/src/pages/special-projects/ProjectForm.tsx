@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useSpecialProjectsStore } from '../../store/specialProjects.store';
 import { Camera, Image as ImageIcon, X } from 'lucide-react';
-import CameraModal from './CameraModal';
 
 const ProjectForm: React.FC = () => {
   const navigate = useNavigate();
@@ -22,7 +21,7 @@ const ProjectForm: React.FC = () => {
   });
   
   const [selectedPhases, setSelectedPhases] = useState<string[]>([
-    'Diseño', 'Programación', 'Producción', 'Verificación'
+    'Diseño', 'Materiales', 'Programación', 'Fabricación', 'Ajuste', 'Prueba', 'Cierre'
   ]);
   const [customPhases, setCustomPhases] = useState<string[]>([]);
   const [newCustomPhase, setNewCustomPhase] = useState('');
@@ -32,7 +31,6 @@ const ProjectForm: React.FC = () => {
     plano_pdf: null
   });
 
-  const [showCamera, setShowCamera] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -84,9 +82,12 @@ const ProjectForm: React.FC = () => {
     
     submitData.append('fases', JSON.stringify(allPhases));
 
-    await createProject(submitData as any);
-    // Go back to special projects if successful
-    navigate('/special-projects');
+    try {
+      await createProject(submitData as any);
+      navigate('/special-projects');
+    } catch {
+      return;
+    }
   };
 
   return (
@@ -227,7 +228,7 @@ const ProjectForm: React.FC = () => {
             Configuración de Fases
           </label>
           <div className="grid grid-cols-2 gap-3 mb-4">
-            {['Diseño', 'Programación', 'Producción', 'Verificación', 'Materiales', 'Ajuste', 'Prueba', 'Cierre'].map(phase => (
+            {['Diseño', 'Materiales', 'Programación', 'Fabricación', 'Ajuste', 'Prueba', 'Cierre'].map(phase => (
               <label key={phase} className="flex items-center gap-2 cursor-pointer bg-white p-2 rounded-lg border border-gray-100 hover:border-blue-300 transition-all">
                 <input
                   type="checkbox"
@@ -285,10 +286,10 @@ const ProjectForm: React.FC = () => {
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <label className="flex-1 cursor-pointer bg-white border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center transition-all group">
                     <ImageIcon className="w-8 h-8 text-gray-400 group-hover:text-blue-500 mb-2" />
-                    <span className="text-sm font-bold text-gray-500 group-hover:text-blue-500">Subir Archivo</span>
+                    <span className="text-center text-sm font-bold text-gray-500 group-hover:text-blue-500">Elegir de galería</span>
                     <input
                       type="file"
                       name="foto_referencia"
@@ -297,14 +298,18 @@ const ProjectForm: React.FC = () => {
                       className="hidden"
                     />
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setShowCamera(true)}
-                    className="flex-1 cursor-pointer bg-blue-50 border-2 border-blue-100 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center transition-all group text-blue-600 hover:bg-blue-100"
-                  >
+                  <label className="cursor-pointer bg-blue-50 border-2 border-blue-100 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center transition-all group text-blue-600 hover:bg-blue-100">
                     <Camera className="w-8 h-8 mb-2" />
-                    <span className="text-sm font-bold">Tomar Foto</span>
-                  </button>
+                    <span className="text-center text-sm font-bold">Tomar foto</span>
+                    <input
+                      type="file"
+                      name="foto_referencia"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -351,12 +356,6 @@ const ProjectForm: React.FC = () => {
         </div>
       </form>
 
-      {showCamera && (
-        <CameraModal
-          onCapture={handleCameraCapture}
-          onClose={() => setShowCamera(false)}
-        />
-      )}
     </div>
   );
 };

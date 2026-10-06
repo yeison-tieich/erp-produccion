@@ -406,6 +406,11 @@ const ProcessModal: React.FC<ProcessModalProps> = ({ fase, projectId, onClose, o
                      <div>
                        <p className="text-[10px] font-black text-brand-500 uppercase leading-none mb-1">{r.piezaNombre}</p>
                        <p className="text-xs text-gray-700 font-bold leading-tight">{r.descripcion}</p>
+                       {(Number(r.cantidad_buena || 0) + Number(r.cantidad_mala || 0) + Number(r.cantidad_retrabajo || 0)) > 0 && (
+                         <p className="mt-1 text-[10px] font-bold text-slate-500">
+                           Buenas {r.cantidad_buena || 0} · Rechazo {r.cantidad_mala || 0} · Retrabajo {r.cantidad_retrabajo || 0}
+                         </p>
+                       )}
                      </div>
                   </div>
                   {r.avance_reportado && <span className="text-xs font-black text-brand-600 bg-brand-50 px-2 py-1 rounded-lg">+{r.avance_reportado}%</span>}

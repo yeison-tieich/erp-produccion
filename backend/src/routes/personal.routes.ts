@@ -1,6 +1,6 @@
 
 import { Router } from 'express';
-import { getPersonal, createPersonal, updatePersonal, deletePersonal, getPersonalDetails, addTimeLog, updateTimeLog, addDotacion, toggleTimeLogPayment, bulkAddOvertime } from '../controllers/personal.controller';
+import { getPersonal, createPersonal, updatePersonal, deletePersonal, getPersonalDetails, addTimeLog, updateTimeLog, addDotacion, toggleTimeLogPayment, markAllOvertimePaid, bulkAddOvertime } from '../controllers/personal.controller';
 import { authenticateToken, authorizeRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -14,6 +14,7 @@ router.delete('/:id', authenticateToken, authorizeRole(['Administrador']), delet
 router.post('/:id/time-log', authenticateToken, authorizeRole(['Administrador', 'Supervisor']), addTimeLog);
 router.put('/time-log/:logId', authenticateToken, authorizeRole(['Administrador', 'Supervisor']), updateTimeLog);
 router.post('/:id/dotacion', authenticateToken, authorizeRole(['Administrador', 'Supervisor']), addDotacion);
+router.patch('/time-log/pay-all', authenticateToken, authorizeRole(['Administrador']), markAllOvertimePaid);
 router.patch('/time-log/:logId/toggle-payment', authenticateToken, authorizeRole(['Administrador']), toggleTimeLogPayment);
 
 export default router;

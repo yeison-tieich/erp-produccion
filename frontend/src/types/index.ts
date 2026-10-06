@@ -20,6 +20,13 @@ export interface ProyectoEspecial {
   archivos: ArchivoAdjunto[];
   notas: NotaTecnica[];
   materiales: MaterialRequeridoProyecto[];
+  ordenes?: {
+    id: number;
+    numero_ot: string;
+    estado_ot: string;
+    fecha_entrega_req?: string | null;
+    tipo_orden: string;
+  }[];
   piezas?: PiezaProyecto[];
   cargas_maquina: CargaMaquina[];
   createdAt: string;
@@ -103,6 +110,7 @@ export interface MaterialRequeridoProyecto {
 export interface PiezaProyecto {
   id: number;
   proyecto_id: number;
+  codigo?: string | null;
   nombre: string;
   cantidad: number;
   avance_fabricacion: number;
@@ -126,6 +134,9 @@ export interface RegistroPieza {
   fecha: string;
   descripcion: string;
   avance_reportado?: number;
+  cantidad_buena?: number;
+  cantidad_mala?: number;
+  cantidad_retrabajo?: number;
 }
 
 export interface Usuario {

@@ -2,7 +2,7 @@
 import React from 'react';
 import { useAuthStore } from '../store/auth.store';
 import { Link, Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Package, ClipboardList, Users, LogOut, Menu, X, Factory, Settings, Wrench, ChevronDown, Truck } from 'lucide-react';
+import { LayoutDashboard, Package, ClipboardList, Users, LogOut, Menu, X, Factory, Settings, Wrench, ChevronDown, Truck, ShieldCheck, AlertTriangle, CheckCircle2, GitMerge, MessageSquare, AlertOctagon, FileText } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfigStore } from '../store/config.store';
 import { SyncIndicator } from '../components/SyncIndicator';
@@ -14,7 +14,7 @@ export const DashboardLayout = () => {
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
     const [openDropdown, setOpenDropdown] = React.useState<string | null>(null);
-    const dropdownRef = React.useRef<HTMLDivElement>(null);
+    const navigationRef = React.useRef<HTMLElement>(null);
 
     // Initialize configuration
     React.useEffect(() => {
@@ -31,7 +31,7 @@ export const DashboardLayout = () => {
     // Close dropdown on click outside
     React.useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+            if (navigationRef.current && !navigationRef.current.contains(e.target as Node)) {
                 setOpenDropdown(null);
             }
         };
@@ -62,9 +62,9 @@ export const DashboardLayout = () => {
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
-        { 
-            label: 'Almacén', 
-            icon: Package, 
+        {
+            label: 'Almacén',
+            icon: Package,
             isGroup: true,
             roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos'],
             subItems: [
@@ -76,6 +76,24 @@ export const DashboardLayout = () => {
             ]
         },
         { icon: ClipboardList, label: 'Órdenes', path: '/orders', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
+        {
+            label: 'Calidad',
+            icon: ShieldCheck,
+            isGroup: true,
+            roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción', 'Compras'],
+            subItems: [
+                { icon: LayoutDashboard, label: 'Dashboard Calidad', path: '/quality', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
+                { icon: ShieldCheck, label: 'Inspecciones', path: '/quality/inspections', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
+                { icon: AlertTriangle, label: 'No Conformidades', path: '/quality/non-conformances', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
+                { icon: CheckCircle2, label: 'Acciones Correctivas', path: '/quality/corrective-actions', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad'] },
+                { icon: ClipboardList, label: 'Planes de Control', path: '/quality/control-plans', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad'] },
+                { icon: GitMerge, label: 'Trazabilidad 360°', path: '/quality/traceability', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
+                { icon: Truck, label: 'Proveedores & Recepción', path: '/quality/suppliers', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Compras'] },
+                { icon: MessageSquare, label: 'Reclamos Clientes', path: '/quality/claims', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad'] },
+                { icon: AlertOctagon, label: 'Riesgos & Auditorías', path: '/quality/risks', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad'] },
+                { icon: FileText, label: 'Documentos SGC', path: '/quality/documents', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
+            ]
+        },
         { icon: Users, label: 'Clientes', path: '/clients', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Contabilidad', 'Compras', 'Ventas'] },
         { icon: Users, label: 'Personal', path: '/personal', roles: ['Administrador'] },
         { icon: Settings, label: 'Mantenimiento', path: '/maintenance', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
@@ -83,7 +101,9 @@ export const DashboardLayout = () => {
         { icon: Settings, label: 'Config', path: '/settings', roles: ['Administrador'] },
         { icon: Factory, label: 'Tareas', path: '/tasks', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
         { icon: Users, label: 'Usuarios', path: '/users', roles: ['Administrador', 'Gerencia', 'Compras'] },
+        { icon: ClipboardList, label: 'Finanzas', path: '/finances', roles: ['Administrador'] },
     ];
+
 
     const filteredItems = menuItems.filter(item => item.roles.includes(user.rol));
 
@@ -96,22 +116,22 @@ export const DashboardLayout = () => {
     const activeGroupLabel = filteredItems.find(item => item.isGroup && isGroupActive(item))?.label;
 
     return (
-        <div className="flex flex-col h-screen bg-transparent overflow-hidden relative z-10">
-            
+        <div className="flex flex-col min-h-screen bg-transparent relative z-10">
+
             {/* ===== TOP NAV BAR ===== */}
-            <header className="flex-shrink-0 w-full px-4 lg:px-6 pt-4 pb-2">
-                <div className="glass-panel rounded-2xl px-4 py-2.5 flex items-center justify-between gap-2">
-                    
+            <header ref={navigationRef} className="flex-shrink-0 w-full px-4 lg:px-6 pt-4 pb-2 relative z-20">
+                <div className="glass-panel rounded-2xl px-4 py-2.5 flex items-center justify-between gap-2 relative">
+
                     {/* Logo / Brand */}
                     <Link to="/" className="flex items-center gap-2 mr-2 flex-shrink-0">
                         <div className="w-8 h-8 rounded-xl bg-brand-400 flex items-center justify-center">
                             <LayoutDashboard className="w-4 h-4 text-brand-950" />
                         </div>
-                        <span className="font-bold text-slate-800 text-sm hidden sm:block">Control MT</span>
+                        <span className="font-bold text-slate-800 text-sm hidden sm:block">Control MECA&TRO</span>
                     </Link>
 
                     {/* Desktop Navigation */}
-                    <nav className="hidden lg:flex items-center justify-center gap-1 flex-1 flex-wrap" ref={dropdownRef}>
+                    <nav className="hidden lg:flex items-center justify-center gap-1 flex-1 flex-wrap">
                         {filteredItems.map((item) => {
                             if (item.isGroup) {
                                 const subItems = item.subItems?.filter(si => si.roles.includes(user.rol)) || [];
@@ -133,7 +153,7 @@ export const DashboardLayout = () => {
                                             <item.icon className="w-4 h-4 flex-shrink-0" />
                                             {groupActive && <span className="whitespace-nowrap">{item.label}</span>}
                                             <ChevronDown className={clsx("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
-                                            
+
                                             {/* Tooltip for icon-only */}
                                             {!groupActive && (
                                                 <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
@@ -144,21 +164,22 @@ export const DashboardLayout = () => {
 
                                         {/* Dropdown */}
                                         {isOpen && (
-                                            <div className="absolute top-full left-0 mt-2 py-2 glass-panel rounded-xl min-w-[200px] z-50 shadow-xl animate-in fade-in slide-in-from-top-2">
+                                            <div className="absolute top-full left-0 mt-2 py-2 bg-white/95 backdrop-blur-xl border border-black/10 rounded-2xl min-w-[220px] z-[100] shadow-2xl animate-in fade-in slide-in-from-top-2">
                                                 {subItems.map((sub) => {
                                                     const isSubActive = location.pathname === sub.path;
                                                     return (
                                                         <Link
                                                             key={sub.path}
                                                             to={sub.path}
+                                                            onClick={() => setOpenDropdown(null)}
                                                             className={clsx(
-                                                                "flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-all mx-1 rounded-lg",
+                                                                "flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-all mx-1.5 rounded-xl",
                                                                 isSubActive
-                                                                    ? "bg-brand-50 text-brand-700"
-                                                                    : "text-slate-600 hover:bg-white/60 hover:text-slate-800"
+                                                                    ? "bg-brand-50 text-brand-700 font-bold shadow-sm"
+                                                                    : "text-slate-600 hover:bg-black/5 hover:text-slate-900"
                                                             )}
                                                         >
-                                                            <sub.icon className="w-4 h-4" />
+                                                            <sub.icon className={clsx("w-4 h-4", isSubActive ? "text-brand-600" : "text-slate-400")} />
                                                             {sub.label}
                                                         </Link>
                                                     );
@@ -232,7 +253,7 @@ export const DashboardLayout = () => {
 
                 {/* Mobile Dropdown Menu */}
                 {isMobileMenuOpen && (
-                    <div className="lg:hidden glass-panel rounded-2xl mt-2 p-3 shadow-xl max-h-[70vh] overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                    <div className="lg:hidden glass-panel rounded-2xl mt-2 p-3 shadow-2xl max-h-[70vh] overflow-y-auto animate-in fade-in slide-in-from-top-2 border border-black/10 bg-white/95 backdrop-blur-xl">
                         {/* User info */}
                         <div className="flex items-center gap-3 px-3 py-3 border-b border-black/5 mb-2">
                             <div className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 text-brand-600 flex items-center justify-center font-black">
@@ -258,7 +279,7 @@ export const DashboardLayout = () => {
                                                 onClick={() => setOpenDropdown(isOpen ? null : item.label)}
                                                 className={clsx(
                                                     "flex items-center justify-between w-full px-3 py-2.5 text-sm font-medium rounded-xl transition-all",
-                                                    groupActive ? "bg-white/80 text-brand-700" : "text-slate-600 hover:bg-white/50"
+                                                    groupActive ? "bg-brand-50 text-brand-700 font-bold" : "text-slate-600 hover:bg-black/5"
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
@@ -275,9 +296,13 @@ export const DashboardLayout = () => {
                                                             <Link
                                                                 key={sub.path}
                                                                 to={sub.path}
+                                                                onClick={() => {
+                                                                    setOpenDropdown(null);
+                                                                    setIsMobileMenuOpen(false);
+                                                                }}
                                                                 className={clsx(
                                                                     "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-all",
-                                                                    isSubActive ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-white/50"
+                                                                    isSubActive ? "bg-brand-50 text-brand-700 font-bold" : "text-slate-500 hover:bg-black/5"
                                                                 )}
                                                             >
                                                                 <sub.icon className="w-4 h-4" />
@@ -296,9 +321,10 @@ export const DashboardLayout = () => {
                                     <Link
                                         key={item.path}
                                         to={item.path}
+                                        onClick={() => setIsMobileMenuOpen(false)}
                                         className={clsx(
                                             "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all",
-                                            isActive ? "bg-white shadow-sm text-brand-700 border border-black/5" : "text-slate-600 hover:bg-white/50"
+                                            isActive ? "bg-brand-50 text-brand-700 font-bold shadow-sm" : "text-slate-600 hover:bg-black/5"
                                         )}
                                     >
                                         <item.icon className="w-5 h-5" />
@@ -323,7 +349,7 @@ export const DashboardLayout = () => {
             </header>
 
             {/* ===== MAIN CONTENT ===== */}
-            <main className="flex-1 overflow-y-auto px-4 lg:px-6 pb-6">
+            <main className="flex-1 px-4 lg:px-6 pb-6 relative">
                 <Outlet />
             </main>
         </div>

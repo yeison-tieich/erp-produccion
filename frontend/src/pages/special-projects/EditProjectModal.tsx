@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ProyectoEspecial } from '../../types';
 import { useSpecialProjectsStore } from '../../store/specialProjects.store';
 import { X, Camera, Image as ImageIcon } from 'lucide-react';
-import { API_URL } from '../../api';
-import CameraModal from './CameraModal';
+import { getAssetUrl } from '../../api';
 
 interface EditProjectModalProps {
   project: ProyectoEspecial;
@@ -29,9 +28,8 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose })
     plano_pdf: null
   });
 
-  const [showCamera, setShowCamera] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(
-    project.foto_referencia_url ? `${API_URL.replace('/api', '')}${project.foto_referencia_url}` : null
+    project.foto_referencia_url ? getAssetUrl(project.foto_referencia_url) : null
   );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -125,10 +123,10 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose })
                 onChange={handleChange}
                 className="w-full px-5 py-3 rounded-2xl border border-gray-100 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-brand-500 outline-none font-bold transition-all"
               >
-                <option value="Activo">Activo</option>
-                <option value="En espera">En espera</option>
-                <option value="Detenido">Detenido</option>
-                <option value="Terminado">Terminado</option>
+                <option value="Pendiente">Pendiente</option>
+                <option value="En proceso">En proceso</option>
+                <option value="En pausa">En pausa</option>
+                <option value="Finalizado">Finalizado</option>
               </select>
             </div>
 
@@ -151,10 +149,10 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose })
                 <label className="block text-gray-400 font-black text-xs uppercase tracking-widest mb-3 italic">Foto de Referencia</label>
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="flex-1 space-y-2">
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <label className="flex-1 cursor-pointer bg-brand-50 border-2 border-dashed border-brand-200 hover:border-brand-500 rounded-2xl p-4 flex flex-col items-center justify-center transition-all group">
                         <ImageIcon className="w-6 h-6 text-brand-400 group-hover:text-brand-600 mb-1" />
-                        <span className="text-[10px] font-black text-brand-600 uppercase tracking-wider">Subir</span>
+                        <span className="text-center text-[10px] font-black text-brand-600 uppercase tracking-wider">Galería</span>
                         <input
                           type="file"
                           name="foto_referencia"
@@ -163,14 +161,18 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose })
                           className="hidden"
                         />
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowCamera(true)}
-                        className="flex-1 cursor-pointer bg-blue-50 border-2 border-blue-100 hover:border-blue-500 rounded-2xl p-4 flex flex-col items-center justify-center transition-all group text-blue-600 hover:bg-blue-100"
-                      >
+                      <label className="cursor-pointer bg-blue-50 border-2 border-blue-100 hover:border-blue-500 rounded-2xl p-4 flex flex-col items-center justify-center transition-all group text-blue-600 hover:bg-blue-100">
                         <Camera className="w-6 h-6 mb-1" />
-                        <span className="text-[10px] font-black uppercase tracking-wider">Cámara</span>
-                      </button>
+                        <span className="text-center text-[10px] font-black uppercase tracking-wider">Tomar foto</span>
+                        <input
+                          type="file"
+                          name="foto_referencia"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                      </label>
                     </div>
                   </div>
 
@@ -225,12 +227,6 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose })
         </form>
       </div>
 
-      {showCamera && (
-        <CameraModal
-          onCapture={handleCameraCapture}
-          onClose={() => setShowCamera(false)}
-        />
-      )}
     </div>
   );
 };

@@ -26,6 +26,13 @@ const formatToISODate = (date: Date) => {
     return `${year}-${month}-${day}`;
 };
 
+const sumUnpaidPermissionsThisMonth = (records: any[] = []) => {
+    const currentMonth = formatToISODate(new Date()).slice(0, 7);
+    return records
+        .filter(record => record.tipo === 'Permiso' && !record.pagado && String(record.fecha).slice(0, 7) === currentMonth)
+        .reduce((total, record) => total + (Number(record.horas) || 0), 0);
+};
+
 const parseISODateForInput = (dateString: string | undefined | null) => {
     if (!dateString) return '';
     return dateString.substring(0, 10);
@@ -61,6 +68,7 @@ export const PersonalPage = () => {
     const [showTimeLogModal, setShowTimeLogModal] = useState(false);
     const [showDotacionModal, setShowDotacionModal] = useState(false);
     const [showBulkOvertimeModal, setShowBulkOvertimeModal] = useState(false);
+    const [isMarkingAllPaid, setIsMarkingAllPaid] = useState(false);
 
     const [editMode, setEditMode] = useState(false);
     const [selectedPerson, setSelectedPerson] = useState<Personal | null>(null);
@@ -148,7 +156,7 @@ export const PersonalPage = () => {
                 await axios.post(`${API_URL}/personal/${selectedPerson.id}/time-log`, timeLogForm);
             }
             setShowTimeLogModal(false);
-            if (detailedPerson) fetchDetails(detailedPerson.id);
+            if (showDetailsModal && detailedPerson?.id === selectedPerson?.id) fetchDetails(detailedPerson.id);
             fetchPersonal();
         } catch (error) {
             alert('Error registrando tiempo');
@@ -199,6 +207,23 @@ export const PersonalPage = () => {
             fetchPersonal();
         } catch (error) {
             alert('Error actualizando estado de pago');
+        }
+    };
+
+    const handleMarkAllOvertimePaid = async () => {
+        if (!confirm('¿Marcar como pagadas todas las horas extras pendientes?')) return;
+        setIsMarkingAllPaid(true);
+        try {
+            const res = await axios.patch(`${API_URL}/personal/time-log/pay-all`);
+            await fetchPersonal();
+            if (showDetailsModal && detailedPerson) await fetchDetails(detailedPerson.id);
+            alert(res.data.count > 0
+                ? `Se marcaron ${res.data.count} registros como pagados.`
+                : 'No hay horas extras pendientes por pagar.');
+        } catch (error) {
+            alert('Error marcando las horas extras como pagadas.');
+        } finally {
+            setIsMarkingAllPaid(false);
         }
     };
 
@@ -283,49 +308,49 @@ export const PersonalPage = () => {
     };
 
     return (
-        <div className="space-y-6 pb-20">
-            <div className="flex justify-between items-center bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+        <div className="space-y-6 pb-10">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-4xl font-black text-gray-900 tracking-tighter flex items-center gap-4">
-                        <Users className="w-10 h-10 text-brand-600" /> Control de Personal
+                    <h1 className="flex items-center gap-3 text-3xl font-extrabold tracking-tight text-gray-900">
+                        <Users className="h-8 w-8 text-brand-600" /> Control de Personal
                     </h1>
-                    <p className="text-gray-500 font-bold mt-1">Gestión administrativa, EPP y registro de tiempos.</p>
+                    <p className="mt-1 text-gray-500">Gestión administrativa, EPP y registro de tiempos.</p>
                 </div>
-                <div className="flex flex-wrap gap-4 relative z-10">
+                <div className="flex flex-wrap gap-2">
                     <button
                         onClick={() => setShowOvertimeSummary(true)}
-                        className="glass-panel text-orange-600 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
+                        className="flex items-center gap-2 rounded-xl border border-orange-200 bg-white px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition hover:bg-orange-50"
                     >
-                        <Clock className="w-6 h-6" /> Resumen Horas Extras
+                        <Clock className="h-4 w-4" /> Resumen horas extras
                     </button>
                     <button
                         onClick={() => setShowBulkOvertimeModal(true)}
-                        className="glass-panel text-brand-700 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
+                        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                     >
-                        <Activity className="w-6 h-6" /> Registro Masivo
+                        <Activity className="h-4 w-4" /> Registro masivo
                     </button>
                     <button
                         onClick={() => { setEditMode(false); setFormData({ nombre: '', cedula: '', cargo: '', salario: '', calificacion: '', kpi_puntualidad: '', eficiencia: '', area: '', activo: true }); setShowModal(true); }}
-                        className="glass-panel text-slate-800 px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-white/60 transition shadow-sm font-black text-lg border border-white/50"
+                        className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
                     >
-                        <Plus className="w-6 h-6" /> Vincular Personal
+                        <Plus className="h-4 w-4" /> Vincular personal
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-[2rem] p-4 shadow-sm border border-gray-100 flex flex-wrap gap-4 items-center">
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
                 <div className="relative flex-1 min-w-[300px]">
-                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 w-6 h-6" />
+                    <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
                     <input
                         type="text"
                         placeholder="Buscar por nombre, cédula o cargo..."
-                        className="w-full pl-16 pr-6 py-4 rounded-2xl border-2 border-gray-50 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all font-bold"
+                        className="w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-12 pr-4 font-medium transition focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
                 <select 
-                    className="bg-white border-2 border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-600 outline-none focus:border-brand-500"
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as any)}
                 >
@@ -337,12 +362,12 @@ export const PersonalPage = () => {
 
             {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <div key={i} className="bg-white h-72 rounded-[2.5rem] animate-pulse border"></div>)}
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <div key={i} className="h-72 animate-pulse rounded-xl border border-slate-200 bg-white"></div>)}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
                     {filteredPersonal.map(person => (
-                        <div key={person.id} className="bg-white rounded-[2.5rem] border border-gray-100 p-8 hover:shadow-2xl transition-all group relative overflow-hidden flex flex-col justify-between h-full">
+                        <div key={person.id} className="group relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-gray-200 bg-white p-6 transition-shadow hover:shadow-lg">
                             {/* Hover Actions */}
                             <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                                 <button onClick={() => openEditModal(person)} className="p-3 bg-white shadow-lg text-gray-600 rounded-2xl hover:bg-brand-50 hover:text-brand-600 transition">
@@ -373,7 +398,7 @@ export const PersonalPage = () => {
                                         <span className="font-mono font-black text-gray-700">{person.cedula}</span>
                                     </div>
 
-                                    <div className="bg-gray-50 rounded-3xl p-5 border border-gray-100 grid grid-cols-4 gap-2 text-center">
+                                    <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-100 bg-gray-50 p-4 text-center sm:grid-cols-3 xl:grid-cols-5">
                                         <div>
                                             <span className="text-[10px] font-black text-gray-400 uppercase block mb-1">Eficiencia</span>
                                             <span className="text-xl font-black text-gray-800">{person.eficiencia || '0'}%</span>
@@ -389,6 +414,12 @@ export const PersonalPage = () => {
                                             </span>
                                         </div>
                                         <div>
+                                            <span className="text-[10px] font-black text-purple-500 uppercase block mb-1">Permisos mes</span>
+                                            <span className="text-xl font-black text-purple-600">
+                                                {sumUnpaidPermissionsThisMonth(person.registrosTiempo)}
+                                            </span>
+                                        </div>
+                                        <div>
                                             <span className="text-[10px] font-black text-red-500 uppercase block mb-1">Tardes Mes</span>
                                             <span className="text-xl font-black text-red-600">
                                                 {person.registrosTiempo?.filter(r => r.tipo === 'Llegada Tarde' && r.fecha.substring(0, 7) === formatToISODate(new Date()).substring(0, 7)).length || 0}
@@ -401,7 +432,7 @@ export const PersonalPage = () => {
                             <div className="mt-8 space-y-3">
                                 <button
                                     onClick={() => fetchDetails(person.id)}
-                                    className="w-full glass-panel text-brand-700 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-white/60 transition shadow-sm border border-white/50"
+                                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-brand-50 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-100"
                                 >
                                     <Eye className="w-4 h-4" /> Ver Detalles
                                 </button>
@@ -412,20 +443,20 @@ export const PersonalPage = () => {
                                             setTimeLogForm({ id: null, tipo: 'Hora Extra', fecha: formatToISODate(new Date()), horas: '', motivo: '' });
                                             setShowTimeLogModal(true);
                                         }}
-                                        className="glass-panel text-orange-600 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-white/60 transition border border-white/50 shadow-sm"
+                                        className="rounded-xl border border-orange-200 bg-white py-3 text-xs font-semibold text-orange-700 transition hover:bg-orange-50"
                                     >
                                         Extras/Permisos
                                     </button>
                                     <button
                                         onClick={() => { setSelectedPerson(person); setShowDotacionModal(true); }}
-                                        className="glass-panel text-blue-600 py-4 rounded-2xl font-black text-[10px] uppercase tracking-tighter hover:bg-white/60 transition border border-white/50 shadow-sm"
+                                        className="rounded-xl border border-blue-200 bg-white py-3 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
                                     >
                                         Registrar EPP
                                     </button>
                                 </div>
                                 <button
                                     onClick={() => handleLlegadaTarde(person)}
-                                    className="w-full mt-2 glass-panel text-red-600 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/60 transition border border-white/50 shadow-sm flex items-center justify-center gap-2"
+                                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white py-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                                 >
                                     <Clock className="w-4 h-4" /> Llegada Tarde
                                 </button>
@@ -437,63 +468,58 @@ export const PersonalPage = () => {
 
             {/* MODAL: DETAILS */}
             {showDetailsModal && detailedPerson && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-[150] flex items-center justify-center p-0 lg:p-12">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] w-full max-w-7xl h-full flex flex-col shadow-2xl overflow-hidden">
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-5 lg:p-8">
+                    <div className="flex h-full max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
                         {/* Header Details */}
-                        <div className="bg-slate-950 p-10 text-white flex justify-between items-center shrink-0">
-                            <div className="flex items-center gap-8">
-                                <div className="w-24 h-24 bg-brand-600 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-brand-500/20">
-                                    <User className="w-12 h-12" />
+                        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white p-4 text-slate-900 sm:p-6">
+                            <div className="flex min-w-0 items-center gap-4">
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 sm:h-14 sm:w-14">
+                                    <User className="h-6 w-6 sm:h-7 sm:w-7" />
                                 </div>
-                                <div>
-                                    <div className="flex items-center gap-4 mb-2">
-                                        <h2 className="text-4xl font-black tracking-tighter">{detailedPerson.nombre}</h2>
-                                        <span className="px-4 py-1.5 bg-white/10 rounded-full text-xs font-black uppercase tracking-widest border border-white/20">{detailedPerson.cargo}</span>
+                                <div className="min-w-0">
+                                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                                        <h2 className="truncate text-xl font-bold sm:text-2xl">{detailedPerson.nombre}</h2>
+                                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{detailedPerson.cargo}</span>
                                     </div>
-                                    <div className="flex gap-10 text-slate-400 font-bold">
-                                        <p className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> {detailedPerson.cedula}</p>
-                                        <p className="flex items-center gap-2 text-green-400 font-black"><DollarSign className="w-4 h-4" /> Salario: ${detailedPerson.salario?.toLocaleString()}</p>
+                                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
+                                        <p className="flex items-center gap-2"><CreditCard className="h-4 w-4" /> {detailedPerson.cedula}</p>
+                                        <p className="flex items-center gap-2 font-semibold text-green-700"><DollarSign className="h-4 w-4" /> Salario: ${detailedPerson.salario?.toLocaleString()}</p>
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={() => setShowDetailsModal(false)} className="p-5 bg-white/5 hover:bg-white/10 rounded-full transition"><X className="w-8 h-8" /></button>
+                            <button onClick={() => { setShowDetailsModal(false); setDetailedPerson(null); }} aria-label="Cerrar detalles" className="shrink-0 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"><X className="h-5 w-5" /></button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto bg-gray-50/50 p-10">
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6">
+                            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                                 {/* Left: Overtime & Permissions */}
-                                <div className="lg:col-span-2 space-y-8">
-                                    <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden min-h-[400px]">
-                                        <div className="p-8 border-b flex justify-between items-end bg-gray-50/50">
-                                            <div className="flex-1">
-                                                <h3 className="text-2xl font-black text-slate-900">Registro de Horas Extras y Permisos</h3>
-                                                <p className="text-sm text-gray-500 font-bold mt-1">Historial acumulado del trabajador.</p>
-                                            </div>
-                                            <div className="bg-orange-50 px-6 py-4 rounded-2xl border border-orange-100 flex flex-col items-center justify-center text-center">
-                                                <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">Total Pendiente (Extras)</span>
-                                                <span className="text-3xl font-black text-orange-600">
-                                                    {filteredTimeLogs?.filter(r => r.tipo === 'Hora Extra' && !r.pagado).reduce((acc: number, curr: any) => acc + (Number(curr.horas) || 0), 0) || 0} hrs
-                                                </span>
-                                            </div>
-                                            <div className="flex gap-4 items-end">
+                                <div className="space-y-5 lg:col-span-2">
+                                    <div className="min-h-[400px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                        <div className="flex flex-col gap-4 border-b border-slate-200 bg-white p-5">
+                                            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                                                 <div>
-                                                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Desde</label>
-                                                    <input type="date" className="p-2 border rounded-xl text-xs font-bold" value={dateFilter.start} onChange={e => setDateFilter({ ...dateFilter, start: e.target.value })} />
+                                                    <h3 className="text-lg font-bold text-slate-900">Horas extras y permisos</h3>
+                                                    <p className="mt-1 text-sm text-slate-500">Historial acumulado del trabajador.</p>
                                                 </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Hasta</label>
-                                                    <input type="date" className="p-2 border rounded-xl text-xs font-bold" value={dateFilter.end} onChange={e => setDateFilter({ ...dateFilter, end: e.target.value })} />
+                                                <div className="flex flex-wrap items-end gap-2">
+                                                    <label className="text-xs font-medium text-slate-500">Desde<input type="date" className="mt-1 block rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-800" value={dateFilter.start} onChange={e => setDateFilter({ ...dateFilter, start: e.target.value })} /></label>
+                                                    <label className="text-xs font-medium text-slate-500">Hasta<input type="date" className="mt-1 block rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-800" value={dateFilter.end} onChange={e => setDateFilter({ ...dateFilter, end: e.target.value })} /></label>
+                                                    <button onClick={() => setDateFilter({ start: '', end: '' })} aria-label="Limpiar filtro de fechas" className="rounded-lg border border-slate-300 p-2.5 text-slate-600 transition hover:bg-slate-50"><Filter className="h-4 w-4" /></button>
                                                 </div>
-                                                <button
-                                                    onClick={() => setDateFilter({ start: '', end: '' })}
-                                                    className="p-3 bg-gray-100 rounded-xl hover:bg-gray-200 transition"
-                                                >
-                                                    <Filter className="w-4 h-4" />
-                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+                                                    <span className="text-xs font-semibold text-orange-700">Extras pendientes</span>
+                                                    <p className="mt-1 text-xl font-bold text-orange-800">{filteredTimeLogs?.filter(r => r.tipo === 'Hora Extra' && !r.pagado).reduce((acc: number, curr: any) => acc + (Number(curr.horas) || 0), 0) || 0} hrs</p>
+                                                </div>
+                                                <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+                                                    <span className="text-xs font-semibold text-purple-700">Permisos pendientes este mes</span>
+                                                    <p className="mt-1 text-xl font-bold text-purple-800">{sumUnpaidPermissionsThisMonth(detailedPerson.registrosTiempo)} hrs</p>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="p-4">
-                                            <table className="w-full text-left">
+                                        <div className="overflow-x-auto p-2 sm:p-4">
+                                            <table className="w-full min-w-[720px] text-left">
                                                 <thead>
                                                     <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                                         <th className="p-4">Fecha</th>
@@ -559,7 +585,7 @@ export const PersonalPage = () => {
 
                                 {/* Right: PPE & Stats */}
                                 <div className="space-y-8">
-                                    <div className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
+                                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                                         <h3 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                                             <ShieldCheck className="w-6 h-6 text-blue-600" /> Entrega de Dotación (EPP)
                                         </h3>
@@ -579,7 +605,7 @@ export const PersonalPage = () => {
                                         </div>
                                     </div>
 
-                                    <div className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
+                                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                                         <h3 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                                             <Wrench className="w-6 h-6 text-purple-600" /> Historial de Herramientas
                                         </h3>
@@ -611,7 +637,7 @@ export const PersonalPage = () => {
                                         </div>
                                     </div>
 
-                                    <div className="bg-brand-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-brand-100">
+                                    <div className="rounded-xl bg-brand-600 p-5 text-white shadow-sm">
                                         <h3 className="font-black text-sm uppercase tracking-widest mb-6 border-b border-brand-500 pb-4">Performance Resumen</h3>
                                         <div className="space-y-6">
                                             <div className="flex justify-between items-center">
@@ -642,16 +668,16 @@ export const PersonalPage = () => {
 
             {/* MODAL: TIME LOG (Extras/Permisos) */}
             {showTimeLogModal && selectedPerson && (
-                <div className="fixed inset-0 bg-black/60 shadow-2xl backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[3rem] max-w-md w-full p-10">
-                        <h2 className="text-2xl font-black mb-8 flex items-center gap-3">
-                            <Clock className="w-8 h-8 text-orange-500" /> Registro Novedad Tiempo
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+                    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                        <h2 className="mb-6 flex items-center gap-3 text-xl font-bold text-slate-900">
+                            <Clock className="h-6 w-6 text-orange-600" /> Registro de tiempo
                         </h2>
                         <form onSubmit={handleAddTimeLog} className="space-y-6">
                             <div>
                                 <label className="block text-xs font-black uppercase text-gray-400 mb-2">Tipo de Registro</label>
                                 <select
-                                    className="w-full p-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-brand-500 focus:bg-white outline-none font-bold"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-medium outline-none transition focus:border-brand-500 focus:bg-white"
                                     value={timeLogForm.tipo}
                                     onChange={e => setTimeLogForm({ ...timeLogForm, tipo: e.target.value })}
                                 >
@@ -664,20 +690,20 @@ export const PersonalPage = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-black uppercase text-gray-400 mb-2">Fecha</label>
-                                    <input type="date" required className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-bold" value={timeLogForm.fecha} onChange={e => setTimeLogForm({ ...timeLogForm, fecha: e.target.value })} />
+                                    <input type="date" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-medium" value={timeLogForm.fecha} onChange={e => setTimeLogForm({ ...timeLogForm, fecha: e.target.value })} />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-black uppercase text-gray-400 mb-2">Horas</label>
-                                    <input type="number" step="0.5" required className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-black text-xl text-center" value={timeLogForm.horas} onChange={e => setTimeLogForm({ ...timeLogForm, horas: e.target.value })} />
+                                    <input type="number" step="0.5" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center text-lg font-semibold" value={timeLogForm.horas} onChange={e => setTimeLogForm({ ...timeLogForm, horas: e.target.value })} />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-black uppercase text-gray-400 mb-2">Observaciones</label>
-                                <textarea className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-bold h-24" value={timeLogForm.motivo} onChange={e => setTimeLogForm({ ...timeLogForm, motivo: e.target.value })} placeholder="Ej: Trabajo en domingo OT-123"></textarea>
+                                <textarea className="h-24 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 font-medium outline-none focus:border-brand-500" value={timeLogForm.motivo} onChange={e => setTimeLogForm({ ...timeLogForm, motivo: e.target.value })} placeholder="Ej: Trabajo en domingo OT-123"></textarea>
                             </div>
                             <div className="flex gap-4">
-                                <button type="button" onClick={() => setShowTimeLogModal(false)} className="flex-1 py-4 font-black text-gray-400 uppercase tracking-widest">Cerrar</button>
-                                <button type="submit" className="flex-1 bg-orange-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-orange-100">{timeLogForm.id ? 'ACTUALIZAR' : 'REGISTRAR'}</button>
+                                <button type="button" onClick={() => setShowTimeLogModal(false)} className="flex-1 rounded-xl border border-slate-300 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">Cancelar</button>
+                                <button type="submit" className="flex-1 rounded-xl bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700">{timeLogForm.id ? 'Actualizar' : 'Registrar'}</button>
                             </div>
                         </form>
                     </div>
@@ -686,16 +712,16 @@ export const PersonalPage = () => {
 
             {/* MODAL: DOTACION (EPP) */}
             {showDotacionModal && selectedPerson && (
-                <div className="fixed inset-0 bg-black/60 shadow-2xl backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[3rem] max-w-md w-full p-10">
-                        <h2 className="text-2xl font-black mb-8 flex items-center gap-3">
-                            <ShieldCheck className="w-8 h-8 text-blue-500" /> Entrega de EPP / Dotación
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+                    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                        <h2 className="mb-6 flex items-center gap-3 text-xl font-bold text-slate-900">
+                            <ShieldCheck className="h-6 w-6 text-blue-600" /> Entrega de EPP / Dotación
                         </h2>
                         <form onSubmit={handleAddDotacion} className="space-y-6">
                             <div>
                                 <label className="block text-xs font-black uppercase text-gray-400 mb-2">Elemento de Protección</label>
                                 <select
-                                    className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-bold"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-medium"
                                     value={dotacionForm.item}
                                     onChange={e => setDotacionForm({ ...dotacionForm, item: e.target.value })}
                                 >
@@ -709,15 +735,15 @@ export const PersonalPage = () => {
                             </div>
                             <div>
                                 <label className="block text-xs font-black uppercase text-gray-400 mb-2">Cantidad</label>
-                                <input type="number" required className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-black text-xl text-center" value={dotacionForm.cantidad} onChange={e => setDotacionForm({ ...dotacionForm, cantidad: e.target.value })} />
+                                <input type="number" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-lg font-semibold" value={dotacionForm.cantidad} onChange={e => setDotacionForm({ ...dotacionForm, cantidad: e.target.value })} />
                             </div>
                             <div>
                                 <label className="block text-xs font-black uppercase text-gray-400 mb-2">Comentarios</label>
-                                <textarea className="w-full p-4 rounded-2xl bg-gray-50 border-2 font-bold h-24" value={dotacionForm.comentarios} onChange={e => setDotacionForm({ ...dotacionForm, comentarios: e.target.value })} placeholder="Ej: Entrega por inicio de labor"></textarea>
+                                <textarea className="h-24 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 font-medium" value={dotacionForm.comentarios} onChange={e => setDotacionForm({ ...dotacionForm, comentarios: e.target.value })} placeholder="Ej: Entrega por inicio de labor"></textarea>
                             </div>
                             <div className="flex gap-4">
-                                <button type="button" onClick={() => setShowDotacionModal(false)} className="flex-1 py-4 font-black text-gray-400 uppercase tracking-widest">Cerrar</button>
-                                <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-blue-100">CONFIRMAR ENTREGA</button>
+                                <button type="button" onClick={() => setShowDotacionModal(false)} className="flex-1 rounded-xl border border-slate-300 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">Cancelar</button>
+                                <button type="submit" className="flex-1 rounded-xl bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700">Confirmar entrega</button>
                             </div>
                         </form>
                     </div>
@@ -726,14 +752,14 @@ export const PersonalPage = () => {
 
             {/* CREATE/EDIT PERSONAL MODAL */}
             {showModal && (
-                <div className="fixed inset-0 bg-black/60 shadow-2xl backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[3rem] max-w-2xl w-full p-10">
-                        <div className="flex justify-between items-center mb-10">
-                            <h2 className="text-3xl font-black tracking-tighter">{editMode ? 'Editar Perfil Operativo' : 'Vincular Nuevo Personal'}</h2>
-                            <button onClick={() => setShowModal(false)} className="p-3 bg-gray-50 hover:bg-gray-100 rounded-full transition"><X /></button>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+                    <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                        <div className="mb-6 flex items-center justify-between gap-4">
+                            <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">{editMode ? 'Editar perfil operativo' : 'Vincular nuevo personal'}</h2>
+                            <button onClick={() => setShowModal(false)} aria-label="Cerrar formulario" className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"><X className="h-5 w-5" /></button>
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <div className="col-span-2">
                                     <label className="block text-xs font-black uppercase text-gray-400 mb-2">Nombre Completo</label>
                                     <input
@@ -815,8 +841,8 @@ export const PersonalPage = () => {
                                 </div>
                             </div>
                             <div className="flex gap-4 pt-4">
-                                <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-5 rounded-[1.5rem] font-black text-gray-400 uppercase tracking-widest">CANCELAR</button>
-                                <button type="submit" className="flex-1 bg-brand-600 text-white py-5 rounded-[1.5rem] font-black text-xl shadow-xl shadow-brand-100 hover:bg-brand-700 transition">GUARDAR PERFIL</button>
+                                <button type="button" onClick={() => setShowModal(false)} className="flex-1 rounded-xl border border-slate-300 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">Cancelar</button>
+                                <button type="submit" className="flex-1 rounded-xl bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700">Guardar perfil</button>
                             </div>
                         </form>
                     </div>
@@ -825,22 +851,22 @@ export const PersonalPage = () => {
 
             {/* MODAL: GENERAL OVERTIME SUMMARY */}
             {showOvertimeSummary && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-[250] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[3rem] w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-white/20 text-slate-900">
-                        <div className="bg-orange-600 p-8 text-white flex justify-between items-center shrink-0">
+                <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-5">
+                    <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+                        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white p-5 sm:p-6">
                             <div>
-                                <h2 className="text-3xl font-black tracking-tighter flex items-center gap-3 text-white">
-                                    <Clock className="w-8 h-8" /> Resumen General de Horas Extras
+                                <h2 className="flex items-center gap-3 text-xl font-bold text-slate-900 sm:text-2xl">
+                                    <Clock className="h-6 w-6 text-orange-600" /> Resumen general de horas extras
                                 </h2>
-                                <p className="text-orange-100 font-bold text-xs uppercase tracking-widest mt-1">Consolidado de horas pendientes por pagar</p>
+                                <p className="mt-1 text-sm text-slate-500">Consolidado de horas pendientes por pagar.</p>
                             </div>
-                            <button onClick={() => setShowOvertimeSummary(false)} className="p-4 bg-white/10 hover:bg-white/20 rounded-full transition">
-                                <X className="w-6 h-6" />
+                            <button onClick={() => setShowOvertimeSummary(false)} aria-label="Cerrar resumen" className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                                <X className="h-5 w-5" />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50">
-                            <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6">
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                                 <table className="w-full text-left">
                                     <thead>
                                         <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b">
@@ -900,18 +926,25 @@ export const PersonalPage = () => {
                                 </table>
                             </div>
                         </div>
-                        <div className="p-8 bg-white border-t flex justify-end shrink-0 gap-4">
+                        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-white p-4 sm:p-5">
+                            <button
+                                onClick={handleMarkAllOvertimePaid}
+                                disabled={isMarkingAllPaid}
+                                className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-semibold text-green-800 transition hover:bg-green-100 disabled:cursor-wait disabled:opacity-60"
+                            >
+                                <ShieldCheck className="h-4 w-4" /> {isMarkingAllPaid ? 'Actualizando...' : 'Marcar todas pagadas'}
+                            </button>
                             <button
                                 onClick={exportToCSV}
-                                className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-green-700 transition shadow-lg shadow-green-200"
+                                className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
                             >
-                                <Download className="w-5 h-5" /> Exportar a CSV (Excel)
+                                <Download className="h-4 w-4" /> Exportar CSV
                             </button>
                             <button
                                 onClick={() => window.print()}
-                                className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-slate-800 transition"
+                                className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                             >
-                                <FileText className="w-5 h-5" /> Imprimir Reporte
+                                <FileText className="h-4 w-4" /> Imprimir
                             </button>
                         </div>
                     </div>
@@ -983,21 +1016,21 @@ const BulkOvertimeModal = ({ isOpen, onClose, personnel, onSave }: { isOpen: boo
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-            <div className="bg-white rounded-[3rem] w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-white/20">
-                <div className="bg-brand-600 p-8 text-white flex justify-between items-center shrink-0">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-5">
+            <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white p-5 text-slate-900 sm:p-6">
                     <div>
-                        <h2 className="text-3xl font-black tracking-tighter flex items-center gap-3">
-                            <Clock className="w-8 h-8" /> Registro Masivo de Horas Extras
+                        <h2 className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
+                            <Clock className="h-6 w-6 text-brand-600" /> Registro masivo de horas extras
                         </h2>
-                        <p className="text-brand-100 font-bold text-xs uppercase tracking-widest mt-1">Ingreso de tiempos para múltiples colaboradores</p>
+                        <p className="mt-1 text-sm text-slate-500">Ingreso de tiempos para múltiples colaboradores.</p>
                     </div>
-                    <button onClick={onClose} className="p-4 bg-white/10 hover:bg-white/20 rounded-full transition">
-                        <X className="w-6 h-6" />
+                    <button onClick={onClose} aria-label="Cerrar registro masivo" className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100">
+                        <X className="h-5 w-5" />
                     </button>
                 </div>
 
-                <div className="p-8 bg-gray-50/50 flex flex-wrap gap-6 items-end border-b border-gray-100">
+                <div className="flex flex-wrap items-end gap-4 border-b border-slate-200 bg-slate-50 p-4 sm:p-5">
                     <div className="flex-1 min-w-[300px]">
                         <label className="block text-[10px] font-black uppercase text-gray-400 mb-2">Buscador de Personal</label>
                         <div className="relative">
@@ -1005,7 +1038,7 @@ const BulkOvertimeModal = ({ isOpen, onClose, personnel, onSave }: { isOpen: boo
                             <input
                                 type="text"
                                 placeholder="Nombre, cargo o área..."
-                                className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-gray-100 focus:border-brand-500 outline-none font-bold"
+                                className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 font-medium outline-none focus:ring-2 focus:ring-brand-500"
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                             />
@@ -1015,14 +1048,14 @@ const BulkOvertimeModal = ({ isOpen, onClose, personnel, onSave }: { isOpen: boo
                         <label className="block text-[10px] font-black uppercase text-gray-400 mb-2">Fecha de Registro</label>
                         <input
                             type="date"
-                            className="w-full p-4 rounded-2xl border-2 border-gray-100 focus:border-brand-500 outline-none font-bold"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 font-medium outline-none focus:ring-2 focus:ring-brand-500"
                             value={selectedDate}
                             onChange={e => setSelectedDate(e.target.value)}
                         />
                     </div>
                     <button
                         onClick={() => setEntries({})}
-                        className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 rounded-2xl transition"
+                        className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-50"
                     >
                         Limpiar valores
                     </button>
@@ -1092,20 +1125,20 @@ const BulkOvertimeModal = ({ isOpen, onClose, personnel, onSave }: { isOpen: boo
                     </table>
                 </div>
 
-                <div className="p-8 bg-white border-t border-gray-100 flex justify-between items-center shrink-0">
-                    <div className="text-sm font-bold text-gray-500">
-                        Mostrando <span className="text-slate-900 font-black">{filteredPersonnel.length}</span> trabajadores activos
+                <div className="flex shrink-0 flex-col justify-between gap-3 border-t border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:p-5">
+                    <div className="text-sm text-slate-500">
+                        Mostrando <span className="font-semibold text-slate-900">{filteredPersonnel.length}</span> trabajadores activos
                     </div>
                     <div className="flex gap-4">
                         <button
                             onClick={onClose}
-                            className="px-8 py-4 font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition"
+                            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                             Cancelar
                         </button>
                         <button
                             onClick={handleSave}
-                            className="bg-brand-600 text-white px-12 py-4 rounded-[1.5rem] font-black text-xl shadow-xl shadow-brand-100 hover:bg-brand-700 transition"
+                            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
                         >
                             Guardar Horas Extras
                         </button>

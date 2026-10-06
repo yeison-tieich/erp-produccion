@@ -5,6 +5,150 @@ import path from 'path';
 import fs from 'fs';
 import { uploadToCloudinary } from '../utils/cloudinary';
 
+const PRODUCT_DASHBOARD_CLIENTS = ['CHEA ING', 'SERIES', 'SIEMENS', 'TNK', 'ARNESES Y GOMAS'];
+const PRODUCT_DASHBOARD_ROLES = ['Administrador', 'Supervisor', 'Gerencia', 'Diseño', 'Contabilidad', 'Compras'];
+
+const normalizeClientName = (name?: string | null) => String(name || '').trim().toUpperCase();
+
+const getProductStockStatus = (product: { stock_actual: number; stock_minimo: number | null; stock_maximo: number | null }) => {
+    const stock = Number(product.stock_actual || 0);
+    if (stock <= 0) return 'AGOTADO';
+    if (product.stock_minimo === null || product.stock_maximo === null) return 'SIN_PARAMETRIZAR';
+    if (stock <= Number(product.stock_minimo)) return 'CRITICO';
+    if (stock <= Number(product.stock_maximo)) return 'EN_REORDEN';
+    return 'SUFICIENTE';
+};
+
+const hasCompleteQuality = (plans: Array<{ activo: boolean; caracteristicas: Array<{ cota_nominal: unknown; tolerancia_min: unknown; tolerancia_max: unknown }> }>) =>
+    plans.some(plan => plan.activo && plan.caracteristicas.length > 0 && plan.caracteristicas.every(characteristic =>
+        characteristic.cota_nominal !== null && characteristic.tolerancia_min !== null && characteristic.tolerancia_max !== null
+    ));
+
+export const getProductsDashboard = async (req: Request, res: Response) => {
+    const userRole = (req as any).user?.rol;
+    if (!PRODUCT_DASHBOARD_ROLES.includes(userRole)) return res.sendStatus(403);
+
+    try {
+        const now = new Date();
+        const defaultFrom = new Date(now);
+        defaultFrom.setDate(defaultFrom.getDate() - 30);
+        const from = req.query.from ? new Date(String(req.query.from)) : defaultFrom;
+        const to = req.query.to ? new Date(String(req.query.to)) : now;
+        const productId = req.query.productId ? Number(req.query.productId) : undefined;
+        const movementType = req.query.movementType ? String(req.query.movementType) : undefined;
+
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+            return res.status(400).json({ error: 'Rango de fechas inválido' });
+        }
+
+        const products = await prisma.producto.findMany({
+            where: {
+                activo: true,
+                ...(productId ? { id: productId } : {}),
+                cliente: { nombre: { in: PRODUCT_DASHBOARD_CLIENTS, mode: 'insensitive' } }
+            },
+            select: {
+                id: true,
+                sku_producto: true,
+                nombre_producto: true,
+                descripcion: true,
+                imagen_url: true,
+                plano_pdf_url: true,
+                stock_actual: true,
+                stock_minimo: true,
+                stock_maximo: true,
+                precio_venta: true,
+                cliente: { select: { id: true, nombre: true } },
+                listaMateriales: { select: { id: true } },
+                rutas: { where: { activo: true }, select: { id: true } },
+                planesControl: {
+                    where: { activo: true },
+                    select: {
+                        activo: true,
+                        caracteristicas: { select: { cota_nominal: true, tolerancia_min: true, tolerancia_max: true } }
+                    }
+                }
+            },
+            orderBy: { nombre_producto: 'asc' }
+        });
+
+        const productIds = products.map(product => product.id);
+        const movements = await prisma.movimientoProducto.findMany({
+            where: {
+                producto_id: { in: productIds },
+                fecha: { gte: from, lte: to },
+                ...(movementType ? { tipo_movimiento: movementType } : {})
+            },
+            select: {
+                id: true,
+                producto_id: true,
+                fecha: true,
+                tipo_movimiento: true,
+                cantidad: true,
+                referencia: true,
+                producto: { select: { sku_producto: true, nombre_producto: true } }
+            },
+            orderBy: { fecha: 'desc' },
+            take: 200
+        });
+
+        const productById = new Map(products.map(product => [product.id, product]));
+        const rotation = new Map<number, { entradas: number; salidas: number }>();
+        movements.forEach(movement => {
+            const current = rotation.get(movement.producto_id) || { entradas: 0, salidas: 0 };
+            const quantity = Math.abs(Number(movement.cantidad || 0));
+            if (movement.tipo_movimiento.toLowerCase().includes('entrada')) current.entradas += quantity;
+            if (movement.tipo_movimiento.toLowerCase().includes('salida')) current.salidas += quantity;
+            rotation.set(movement.producto_id, current);
+        });
+
+        const health = {
+            sinBOM: products.filter(product => product.listaMateriales.length === 0),
+            sinCalidad: products.filter(product => !hasCompleteQuality(product.planesControl)),
+            sinPlanoImagen: products.filter(product => !product.plano_pdf_url || !product.imagen_url),
+            sinMinMax: products.filter(product => product.stock_minimo === null || product.stock_maximo === null)
+        };
+        const completeProducts = products.filter(product => Boolean(product.descripcion?.trim()) && product.rutas.length > 0 && product.listaMateriales.length > 0 && Boolean(product.plano_pdf_url) && hasCompleteQuality(product.planesControl));
+        const statuses = products.map(product => getProductStockStatus(product));
+
+        const serializedMovements = movements.map(movement => ({
+            ...movement,
+            cantidad: Number(movement.cantidad),
+            fecha: movement.fecha.toISOString()
+        }));
+
+        res.json({
+            range: { from: from.toISOString(), to: to.toISOString() },
+            kpis: {
+                totalProductos: products.length,
+                piezasCriticas: products.filter(product => ['AGOTADO', 'CRITICO'].includes(getProductStockStatus(product))).reduce((total, product) => total + Number(product.stock_actual || 0), 0),
+                integridadDatos: products.length ? Number(((completeProducts.length / products.length) * 100).toFixed(1)) : 0,
+                valorInventario: products.reduce((total, product) => total + Number(product.stock_actual || 0) * Number(product.precio_venta || 0), 0)
+            },
+            dataHealth: {
+                sinBOM: health.sinBOM.map(product => ({ id: product.id, sku: product.sku_producto, nombre: product.nombre_producto })),
+                sinCalidad: health.sinCalidad.map(product => ({ id: product.id, sku: product.sku_producto, nombre: product.nombre_producto })),
+                sinPlanoImagen: health.sinPlanoImagen.map(product => ({ id: product.id, sku: product.sku_producto, nombre: product.nombre_producto })),
+                sinMinMax: health.sinMinMax.map(product => ({ id: product.id, sku: product.sku_producto, nombre: product.nombre_producto }))
+            },
+            stockDistribution: ['SUFICIENTE', 'EN_REORDEN', 'CRITICO', 'AGOTADO'].map(status => ({ estado: status, cantidad: statuses.filter(current => current === status).length })),
+            completenessDistribution: [
+                { estado: 'COMPLETOS', cantidad: completeProducts.length },
+                { estado: 'PENDIENTES', cantidad: products.length - completeProducts.length }
+            ],
+            rotationTop10: Array.from(rotation.entries())
+                .map(([id, values]) => ({ producto: productById.get(id)?.nombre_producto || 'Producto', sku: productById.get(id)?.sku_producto || '', ...values, movimiento: values.entradas + values.salidas }))
+                .sort((a, b) => b.movimiento - a.movimiento)
+                .slice(0, 10),
+            movements: serializedMovements,
+            filters: { products: products.map(product => ({ id: product.id, sku: product.sku_producto, nombre: product.nombre_producto })), types: Array.from(new Set(movements.map(movement => movement.tipo_movimiento))) }
+        });
+    } catch (error) {
+        console.error('getProductsDashboard error:', error);
+        res.status(500).json({ error: 'Error obteniendo dashboard de productos' });
+    }
+};
+
 export const getProducts = async (req: Request, res: Response) => {
     try {
         const products = await prisma.producto.findMany({
@@ -17,6 +161,8 @@ export const getProducts = async (req: Request, res: Response) => {
                 acabado: true,
                 imagen_url: true,
                 stock_actual: true,
+                stock_minimo: true,
+                stock_maximo: true,
                 ancho_tira: true,
                 medidas_pieza: true,
                 piezas_lamina_4x8: true,
@@ -48,7 +194,7 @@ export const createProduct = async (req: Request, res: Response) => {
         sku_producto, nombre_producto, descripcion, cliente_id, acabado,
         imagen_url, stock_actual, ubicacion,
         medidas_pieza, piezas_lamina_4x8, piezas_lamina_2x1, empaque_de,
-        precio_venta, materials, routes
+        precio_venta, stock_minimo, stock_maximo, materials, routes
     } = req.body;
     try {
         const product = await prisma.producto.create({
@@ -60,6 +206,8 @@ export const createProduct = async (req: Request, res: Response) => {
                 acabado,
                 imagen_url,
                 stock_actual: Number(stock_actual) || 0,
+                stock_minimo: stock_minimo !== undefined && stock_minimo !== '' ? Number(stock_minimo) : null,
+                stock_maximo: stock_maximo !== undefined && stock_maximo !== '' ? Number(stock_maximo) : null,
                 ubicacion,
                 medidas_pieza,
                 piezas_lamina_4x8,
@@ -93,8 +241,8 @@ export const createProduct = async (req: Request, res: Response) => {
 export const updateProduct = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { 
-        sku_producto, nombre_producto, descripcion, cliente_id, acabado, 
-        ancho_tira, medidas_pieza, empaque_de, activo, precio_venta, materials 
+        sku_producto, nombre_producto, descripcion, cliente_id, acabado,
+        ancho_tira, medidas_pieza, empaque_de, activo, precio_venta, stock_minimo, stock_maximo, materials
     } = req.body;
     try {
         // Update product basic info
@@ -111,6 +259,8 @@ export const updateProduct = async (req: Request, res: Response) => {
                 empaque_de,
                 activo: activo !== undefined ? Boolean(activo) : undefined,
                 precio_venta: precio_venta !== undefined ? Number(precio_venta) : undefined,
+                stock_minimo: stock_minimo !== undefined && stock_minimo !== '' ? Number(stock_minimo) : null,
+                stock_maximo: stock_maximo !== undefined && stock_maximo !== '' ? Number(stock_maximo) : null,
             }
         });
 

@@ -1,0 +1,79 @@
+# MODULO CLIENTES 
+
+PONER UN BOTON QUE ELIMINE A ESOS CLIENTES HAY CLIENTES MUY VIEJOS QUE YA NO SE TRABAJA CON ELLOS Y NO HAY COMO ELIMINARLOS
+EN EL MODAL Catálogo de productos vinculados QUERO PODER VICULAR LOS PRODUCTOS DESDE AHI QUE PUEDA SELECIONAR VARIOS AL MISMO TIEMPO Y VINCULARLOS ESE CLIENTE
+
+# MODEULO DE TAERAS 
+
+EN ESTE MODULO QUIERO ORGANIZAR LAS TARESAS POR EMPLREADO PARA QUE EL TRABAJADOR ENTRE Y VEA SUS TAREAS ASIGNADAS Y YO PUEDA VER TODAS LAS TAREAS Y PUEDA FILTRAR POR TRABAJADOR 
+
+
+# MODULO DE MANTENIMIENTO 
+
+EN ESTE MODULO AHI UN ERROR QUE NO HEMOS PODIDO CORREGI, Y ES QUE LAS IMAGENES DE LAS MAQUINAS NO SE VEN ADEMAS LOSBOTONES NO FUNCIONAN Y ME GUSTARIA PODER ENLASAR ESTE MODULO CON LAS ORDENES PARA PODER VER QUE MAQUINA ESTA TRABAJANDO EN QUE ORDER DE TRABAJO ESTO AUTOMATICO CON LA ORDEN DE TRABAJO ADEMAS DE MANTENES UN REGISTRO DE TIEMPOTRABAJADO DE LA MAQUINA SEGUN LAS ORDENES 
+
+QUERO PODER VINCULAR PRODUCTOS A LAS MAQUINAS OSEA QUE UN PROCESOS SE VINCULE A UNA MAQUINA DONDE GENERALMENTE SE SACA ESE PRODUCTO O PROCESO
+
+# EN EL MODULO DE USUARIOS 
+
+QUERO VISUALIZAR LOS TIPOS DE USUARIOS QUE TIENEN ACCESO Y PODER CONFIGURAR LOS PERMISOS DE LA PLATAFORMA ADEMAS DE LAS CONTRASEÑAS Y LOS NOMBRES DE USUARIOS, TAMBIEN PODER AGREGAR O BORRAR USUARIOS DESDE ESTE MODULO
+
+QUIERO INTEGRAR UN NUEVO MODULO, ESTE SE VA A LLAMAR FINAZAS SOLO PARA EL USUARIO ADMINISTRADO Y ESTE SE ENCARGA DE MOSTRAR TODOS LOS COSTO DE TODA LA PLATAFORMA, COMO LOS COSTOS DE MATERIA PRIMA LOS COSTOS DE MAQUINAS, LOS COSTOS DE PRODUCION, LA NOMINA, LOS COCTOS DE HORAR EXTRAS, LOS COSTOS DE PROYECTOS ESPECIALES, ETC
+
+# MODULO DE PERSONAL 
+
+QUERO QUE EL DISEÑO DE ESTE MODULO ESTE OACURDE CON EL RESTO DE MODULOS TANTO EL PRICIPAL COMO LOS MODALES 
+
+QUIERO UN BOTON QUE HAGA QUE TODAS LAS HORAS QUE ESTAN ACTIVAS PASEN A PAGADAS 
+
+QUIERO QUE SUME LOS PERMISOS Y SE VEAN AL LADO DE LAS HORAS EXTRAS 
+
+HAY UN ERROR CUANDO CUANDO CIERRO EL MODAL DE DETALLES ADEMAS QUE TIENE EL DISEÑO  ANTIGUO QUE NO ENCAJA CON LOS OTROS MODULOS TAMBIEN SE ABRE CUANDO AGREGO UN REGISTRO DE HORA EXTRA, SE ABRE EL MODAL QUE ABRI ANTERIORMENTE
+
+# MODULO DE CONFIGURACION 
+
+ESTE MODULO TAMBIEN TIENE EL DISEÑO DE INTERFAS ANTIGUO QUE NO CONCUERDA CON LOS DEMAS MODULOS ADEMAS TOCA REVISAR SI LOS CAMBIOS DE LOS TEMAS FUNCIONAN CON EL NUEVO DISEÑO  
+
+HICE UNAS MODIFICACIONES al modulo de orden y otras mas pero haora el modulo no me mustra las ordenes como si se ubiera cortado la conecion de ese modulo con la base por solo es ese modulo los otros si estan bien y tienen datos
+
+# MODULO DE MATERIA PRIMA
+
+TODABIA TENGO EL ERROR DE QUE NO SE DECUENTA NI DEL STOCK ACTUAL NI DEL MATERIAL EN RESERVA LA MATERIA PRIMA CUANDO LA ORDEN APARECE COMO COMPLETADA O CUANDO SE CIERRA LA ORDEN 
+
+EN ESTE MODULO QUIERO QUE SE PUEDA VER EN UN GRAFICO EL ESTADO DE TODO EL STOCK DE MATERIA PRIMA.
+
+# MODULO DE CATALOGO DE PRODUCTOS 
+
+EN ESTE MODULO QUERO HACER OTRA PESTAÑA TIPO DASHBOAR QUE ME MUSTRE TODO LO RELACIONADO CON EL INVENTARIO DE PRODUCTOS CON GRAFICO CON MOVIMIENTOS CON ALERTAS Y SI FALTA INFORMACION DE LOS PRODUCTOS  
+
+
+1. ROL Y OBJETIVO
+Eres un Ingeniero de Software Full-Stack Senior y Diseñador UX especializado en ERPs industriales y manufactura metalmecánica. Tu objetivo es diseñar, codificar e integrar una nueva pestaña tipo "Dashboard de Inventario" dentro del Módulo de Catálogo de Productos en el ERP MECAYTRO.
+
+
+3. REQUERIMIENTOS FUNCIONALES DEL DASHBOARD
+La pestaña debe estar organizada en 4 bloques principales:
+
+A. Tarjetas de KPIs y Métricas de Estado de Productos:
+   - Total de Productos en Catálogo.
+   - Total de Piezas con Stock Crítico o Bajo Mínimos.
+   - Porcentaje de Integridad de Datos (% de Productos con Ficha Técnica, Plano PDF, BOM y Tolerancias completas).
+   - Valor Total del Inventario Físico / Valorizado.
+
+B. Módulo de Alertas e Información Incompleta (Data Health Check):
+   - Alerta de productos sin Lista de Materiales (BOM) asignada.
+   - Alerta de productos sin Plan de Control o Tolerancias de Calidad definidas.
+   - Alerta de productos sin Plano PDF o Imagen adjunta.
+   - Alerta de productos sin Stock Mínimo/Máximo parametrizado.
+
+C. Visualización de Datos y Gráficos (Recharts):
+   - Gráfico de Barras / Áreas: Top 10 productos con mayor movimiento de entrada/salida (Rotación).
+   - Gráfico Circular (PieChart): Distribución del inventario por Estado (Suficiente, En Punto de Reorden, Crítico, Agotado).
+   - Gráfico de Distribución: Productos completos vs. Productos con información pendiente (Incompletos).
+
+D. Historial y Tabla de Movimientos Recientes:
+   - Tabla interactiva con logs de movimientos de inventario vinculados al catálogo (Entradas, Salidas por OT, Ajustes de Kardex, Scraps).
+   - Filtros dinámicos por rango de fechas, tipo de movimiento y producto.
+
+
+Instrucción: Confirma que has comprendido el contexto técnico y funcional y solicita los parámetros específicos o archivos que necesitas para empezar a generar el código.

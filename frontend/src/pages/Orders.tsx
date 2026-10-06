@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { generateOrderPDF } from '../utils/pdfGenerator';
 import {
@@ -8,7 +9,7 @@ import {
     MoreVertical, ChevronRight, User, Settings,
     Thermometer, ShieldCheck, DollarSign, Timer, X,
     Activity, Factory, ClipboardList, ArrowUp, ArrowDown,
-    EyeOff, Filter
+    EyeOff, Filter, Play
 } from 'lucide-react';
 import clsx from 'clsx';
 import { API_URL, BASE_URL } from '../api';
@@ -22,6 +23,10 @@ interface Order {
     cantidad_fabricar: number;
     fecha_entrega_req: string;
     estado_ot: string;
+    estado_calidad?: string;
+    cantidad_aprobada?: number;
+    cantidad_rechazada?: number;
+    cantidad_retrabajada?: number;
     producto: {
         id: number;
         nombre_producto: string;
@@ -31,6 +36,7 @@ interface Order {
     tareas: {
         id: number;
         estado_tarea: string;
+        secuencia_ot?: number | null;
         rutaFabricacion?: {
             no_operacion: number;
             nombre_operacion: string;
@@ -48,6 +54,7 @@ interface Order {
 import { useOrdersStore } from '../store/orders.store';
 
 export const Orders = () => {
+    const navigate = useNavigate();
     const {
         orders,
         isLoading: loading,
@@ -60,6 +67,7 @@ export const Orders = () => {
     } = useOrdersStore();
 
     const [products, setProducts] = useState<any[]>([]);
+    const [specialProjects, setSpecialProjects] = useState<any[]>([]);
     // ... rest of local component state ...
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
@@ -80,6 +88,7 @@ export const Orders = () => {
     const [formData, setFormData] = useState({
         tipo_orden: 'PRODUCCION_SERIE',
         producto_id: '',
+        proyecto_especial_id: '',
         cantidad_fabricar: '',
         cliente: '',
         fecha_entrega_req: '',
@@ -258,6 +267,9 @@ export const Orders = () => {
     useEffect(() => {
         fetchOrders();
         fetchProducts();
+        axios.get(`${API_URL}/special-projects`)
+            .then(response => setSpecialProjects(response.data))
+            .catch(error => console.error('Error fetching special projects:', error));
         axios.get(`${API_URL}/operations`)
             .then(r => setOperationsList(r.data))
             .catch(() => setOperationsList([]));
@@ -338,6 +350,7 @@ export const Orders = () => {
         setFormData({
             tipo_orden: order.tipo_orden || 'PRODUCCION_SERIE',
             producto_id: order.producto?.id?.toString() || '',
+            proyecto_especial_id: order.proyecto_especial_id?.toString() || '',
             cantidad_fabricar: order.cantidad_fabricar?.toString() || '0',
             cliente: order.cliente || '',
             fecha_entrega_req: order.fecha_entrega_req ? order.fecha_entrega_req.split('T')[0] : '',
@@ -399,7 +412,7 @@ export const Orders = () => {
                         <Activity className="w-6 h-6" /> Generar Informe Mensual
                     </button>
                     <button
-                        onClick={() => { setFormData({ tipo_orden: 'PRODUCCION_SERIE', producto_id: '', cantidad_fabricar: '', cliente: '', fecha_entrega_req: '', estado_ot: 'Pendiente', acabado: '', ancho_tira: '', piezas_lamina: '', precio_venta: '' }); setShowCreateModal(true); }}
+                        onClick={() => { setFormData({ tipo_orden: 'PRODUCCION_SERIE', producto_id: '', proyecto_especial_id: '', cantidad_fabricar: '', cliente: '', fecha_entrega_req: '', estado_ot: 'Pendiente', acabado: '', ancho_tira: '', piezas_lamina: '', precio_venta: '' }); setShowCreateModal(true); }}
                         className="bg-brand-600 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-brand-700 transition shadow-xl shadow-brand-100 font-black text-lg"
                     >
                         <Plus className="w-6 h-6" /> Nueva OT
@@ -473,6 +486,19 @@ export const Orders = () => {
                                     )}>
                                         {order.estado_ot}
                                     </span>
+                                    {order.estado_calidad && (
+                                        <span className={clsx(
+                                            "px-3 py-1 text-[10px] font-black rounded-full uppercase tracking-widest border flex items-center gap-1",
+                                            order.estado_calidad === 'Aprobada' ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                            order.estado_calidad === 'Retenida' ? "bg-rose-100 text-rose-800 border-rose-300 animate-pulse" :
+                                            order.estado_calidad === 'Rechazada' ? "bg-red-100 text-red-800 border-red-300" :
+                                            order.estado_calidad === 'Concesion' ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                            "bg-slate-100 text-slate-700 border-slate-300"
+                                        )}>
+                                            <ShieldCheck className="w-3 h-3" />
+                                            {order.estado_calidad === 'Retenida' ? 'CALIDAD: RETENIDA (BLOQUEO)' : `CALIDAD: ${order.estado_calidad}`}
+                                        </span>
+                                    )}
                                 </div>
                                 <h3 className="text-xl font-black text-gray-900 leading-tight">{order.producto?.nombre_producto || 'Sin Producto'}</h3>
                                 <div className="text-sm text-gray-500 mt-1">SKU: <span className="font-mono text-xs text-gray-700">{order.producto?.sku_producto || '—'}</span></div>
@@ -495,8 +521,8 @@ export const Orders = () => {
                             {/* Operation Progress Section */}
                             <div className="flex flex-col gap-3 min-w-[240px] border-l border-gray-100 pl-6 ml-auto hidden 2xl:flex text-slate-900">
                                 {(() => {
-                                    const sorted = [...order.tareas].sort((a, b) => (a.rutaFabricacion?.no_operacion || 0) - (b.rutaFabricacion?.no_operacion || 0));
-                                    const currentIndex = sorted.findIndex(t => t.estado_tarea !== 'Completada');
+                                    const sorted = [...order.tareas].sort((a, b) => (a.secuencia_ot ?? a.rutaFabricacion?.no_operacion ?? 0) - (b.secuencia_ot ?? b.rutaFabricacion?.no_operacion ?? 0));
+                                    const currentIndex = sorted.findIndex(t => t.estado_tarea !== 'Completada' && t.estado_tarea !== 'Finalizada');
                                     const current = currentIndex !== -1 ? sorted[currentIndex] : null;
                                     const next = currentIndex !== -1 ? sorted[currentIndex + 1] : null;
 
@@ -507,7 +533,7 @@ export const Orders = () => {
                                                 {current ? (
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center font-black text-[10px]">
-                                                            {current.rutaFabricacion?.no_operacion}
+                                                            {current.secuencia_ot ?? current.rutaFabricacion?.no_operacion}
                                                         </div>
                                                         <span className="text-xs font-black text-slate-700 truncate max-w-[150px] font-black">{current.rutaFabricacion?.nombre_operacion}</span>
                                                     </div>
@@ -523,7 +549,7 @@ export const Orders = () => {
                                                     <span className="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-1">SIGUIENTE</span>
                                                     <div className="flex items-center gap-2 opacity-50">
                                                         <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center font-black text-[10px]">
-                                                            {next.rutaFabricacion?.no_operacion}
+                                                            {next.secuencia_ot ?? next.rutaFabricacion?.no_operacion}
                                                         </div>
                                                         <span className="text-xs font-bold text-gray-400 truncate max-w-[150px]">{next.rutaFabricacion?.nombre_operacion}</span>
                                                     </div>
@@ -537,6 +563,18 @@ export const Orders = () => {
 
                         {/* Action Buttons Container */}
                         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto border-t xl:border-t-0 pt-4 xl:pt-0">
+                                <button
+                                onClick={() => navigate('/quality/traceability')}
+                                className={clsx(
+                                    "flex-1 xl:flex-none flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-xs transition border",
+                                    order.estado_calidad === 'Retenida'
+                                        ? "bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 animate-bounce"
+                                        : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-100"
+                                )}
+                                title="Ver Trazabilidad y Gestión de Calidad ISO 9001"
+                            >
+                                <ShieldCheck className="w-4 h-4" /> CALIDAD
+                            </button>
                             <button
                                 onClick={() => openDetailModal(order)}
                                 className="flex-1 xl:flex-none flex items-center justify-center gap-2 bg-gray-50 text-gray-700 px-4 py-3 rounded-xl font-black text-xs hover:bg-gray-100 transition border border-gray-100"
@@ -676,17 +714,17 @@ export const Orders = () => {
 
             {/* CREATE/EDIT MODAL */}
             {(showCreateModal || showEditModal) && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[110] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] shadow-2xl max-w-xl w-full flex flex-col max-h-[100vh] lg:max-h-[90vh] overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
+                <div className="fixed inset-0 bg-slate-900/60 shadow-2xl backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full flex flex-col max-h-[90vh] overflow-hidden border border-gray-100">
+                        {/* Detail Header */}
+                        <div className="flex justify-between items-center p-6 border-b border-gray-100">
                             <div className="flex items-center gap-4">
-                                <div className="bg-brand-600 p-3 rounded-2xl">
+                                <div className="bg-brand-50 text-brand-700 p-3 rounded-2xl">
                                     <Plus className="w-6 h-6" />
                                 </div>
-                                <h2 className="text-2xl font-black tracking-tight">{showEditModal ? 'Editar Orden' : 'Nueva Orden de Trabajo'}</h2>
+                                <h2 className="text-xl font-black text-slate-900 tracking-tight">{showEditModal ? 'Editar Orden' : 'Nueva Orden de Trabajo'}</h2>
                             </div>
-                            <button onClick={() => { setShowCreateModal(false); setShowEditModal(false); }} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+                            <button onClick={() => { setShowCreateModal(false); setShowEditModal(false); }} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl transition-all"><X className="w-5 h-5" /></button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-10">
@@ -718,6 +756,21 @@ export const Orders = () => {
                                                 ))}
                                             </select>
                                         </div>
+                                        {formData.tipo_orden === 'PROYECTO_ESPECIAL' && (
+                                            <div>
+                                                <label className="block text-xs font-black uppercase text-gray-400 tracking-widest mb-2">Proyecto relacionado (opcional)</label>
+                                                <select
+                                                    className="w-full px-5 py-4 rounded-2xl border-2 border-gray-50 bg-gray-50 focus:bg-white focus:border-brand-500 outline-none font-bold transition-all"
+                                                    value={formData.proyecto_especial_id}
+                                                    onChange={e => setFormData({ ...formData, proyecto_especial_id: e.target.value })}
+                                                >
+                                                    <option value="">OT especial independiente</option>
+                                                    {specialProjects.map(project => (
+                                                        <option key={project.id} value={project.id}>{project.codigo} - {project.descripcion_tecnica}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                                 <div className="grid grid-cols-2 gap-6">
@@ -836,40 +889,40 @@ export const Orders = () => {
 
             {/* DETAILED VIEW MODAL */}
             {showDetailModal && selectedOrder && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] w-full max-w-[95vw] h-full lg:h-[95vh] flex flex-col overflow-hidden transition-all duration-500">
+                <div className="fixed inset-0 bg-slate-900/60 shadow-2xl backdrop-blur-sm z-[120] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-[95vw] lg:max-w-8xl h-[95vh] flex flex-col overflow-hidden border border-gray-100">
                         {/* Detail Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-white">
                             <div className="flex items-center gap-6">
-                                <div className="bg-brand-600 p-4 rounded-3xl">
-                                    <ClipboardList className="w-10 h-10" />
+                                <div className="bg-brand-50 text-brand-700 p-4 rounded-2xl">
+                                    <ClipboardList className="w-8 h-8" />
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-3">
-                                        <h2 className="text-3xl font-black">{selectedOrder.numero_ot}</h2>
-                                        <span className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/20">
+                                        <h2 className="text-2xl font-black text-slate-900">{selectedOrder.numero_ot}</h2>
+                                        <span className="px-3 py-1 bg-gray-100 rounded-full text-[10px] font-black uppercase tracking-widest border border-gray-200 text-gray-600">
                                             {selectedOrder.estado_ot}
                                         </span>
                                     </div>
-                                    <p className="text-brand-400 font-bold">
-                                        {selectedOrder.producto?.nombre_producto || 'N/A'} • SKU: {selectedOrder.producto?.sku_producto || 'N/A'}
+                                    <p className="text-gray-500 font-medium text-sm mt-1">
+                                        <span className="font-bold text-gray-700">{selectedOrder.producto?.nombre_producto || 'N/A'}</span> • SKU: {selectedOrder.producto?.sku_producto || 'N/A'}
                                         {selectedOrder.fecha_inicio_real && ` • Iniciada: ${new Date(selectedOrder.fecha_inicio_real).toLocaleString()}`}
                                         {selectedOrder.duracion_total_real_min > 0 && ` • Tiempo Total: ${(selectedOrder.duracion_total_real_min / 60).toFixed(2)} hrs`}
                                     </p>
-                                    <div className="flex gap-4 mt-2">
-                                        {selectedOrder.acabado && <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded border border-white/20 uppercase">Acabado: {selectedOrder.acabado}</span>}
-                                        {selectedOrder.ancho_tira && <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded border border-white/20 uppercase">Ancho Tira: {selectedOrder.ancho_tira}mm</span>}
-                                        {selectedOrder.piezas_lamina && <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded border border-white/20 uppercase">Pzas/Lámina: {selectedOrder.piezas_lamina}</span>}
+                                    <div className="flex gap-4 mt-3">
+                                        {selectedOrder.acabado && <span className="text-[10px] bg-gray-50 px-2.5 py-1 rounded-md border border-gray-200 uppercase font-bold text-gray-600">Acabado: {selectedOrder.acabado}</span>}
+                                        {selectedOrder.ancho_tira && <span className="text-[10px] bg-gray-50 px-2.5 py-1 rounded-md border border-gray-200 uppercase font-bold text-gray-600">Ancho Tira: {selectedOrder.ancho_tira}mm</span>}
+                                        {selectedOrder.piezas_lamina && <span className="text-[10px] bg-gray-50 px-2.5 py-1 rounded-md border border-gray-200 uppercase font-bold text-gray-600">Pzas/Lámina: {selectedOrder.piezas_lamina}</span>}
                                     </div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-4">
                                 {selectedOrder.imagen_url && (
-                                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-white/10 border border-white/20">
+                                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-50 border border-gray-200 shadow-sm">
                                         <img src={selectedOrder.imagen_url.startsWith('http') ? selectedOrder.imagen_url : `${BASE_URL}${selectedOrder.imagen_url}`} className="w-full h-full object-cover" />
                                     </div>
                                 )}
-                                <button onClick={() => setShowDetailModal(false)} className="p-4 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+                                <button onClick={() => setShowDetailModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl transition-all"><X className="w-6 h-6" /></button>
                             </div>
                         </div>
 
@@ -950,7 +1003,7 @@ export const Orders = () => {
                                         <tbody className="divide-y divide-gray-50">
                                             {selectedOrder.tareas.map((tarea: any, index: number) => (
                                                 <tr key={tarea.id} className="hover:bg-gray-50/80 transition-colors">
-                                                    <td className="p-6 text-center font-black text-slate-400 text-xs">#{tarea.rutaFabricacion?.no_operacion || '--'}</td>
+                                                    <td className="p-6 text-center font-black text-slate-400 text-xs">#{tarea.secuencia_ot ?? tarea.rutaFabricacion?.no_operacion ?? '--'}</td>
                                                     <td className="p-6">
                                                         <p className="font-black text-slate-700">{tarea.rutaFabricacion?.nombre_operacion || 'Op Sin Nombre'}</p>
                                                         <p className="text-[10px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tight">
@@ -1031,23 +1084,30 @@ export const Orders = () => {
                                                         <div className="flex items-center justify-center gap-2">
                                                             <button onClick={() => moveTask(index, 'up')} disabled={index === 0} className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-gray-200 disabled:opacity-50" title="Mover Arriba"><ArrowUp className="w-4 h-4" /></button>
                                                             <button onClick={() => moveTask(index, 'down')} disabled={index === selectedOrder.tareas.length - 1} className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-gray-200 disabled:opacity-50" title="Mover Abajo"><ArrowDown className="w-4 h-4" /></button>
-                                                            {tarea.estado_tarea === 'Pendiente' && (
-                                                                <button
-                                                                    onClick={() => handleStartTask(tarea.id)}
-                                                                    className="p-2 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-600 hover:text-white transition"
-                                                                    title="Iniciar Tarea"
-                                                                >
-                                                                    <Activity className="w-4 h-4" />
-                                                                </button>
-                                                            )}
-                                                            {tarea.estado_tarea === 'En Progreso' && (
-                                                                <button
-                                                                    onClick={() => handleFinishTask(tarea.id)}
-                                                                    className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition"
-                                                                    title="Finalizar Tarea"
-                                                                >
-                                                                    <CheckCircle className="w-4 h-4" />
-                                                                </button>
+                                                            {tarea.estado_tarea !== 'Finalizada' && tarea.estado_tarea !== 'Completada' && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => handleStartTask(tarea.id)}
+                                                                        className={clsx(
+                                                                            "p-2 rounded-lg transition flex items-center gap-1 text-xs font-bold",
+                                                                            (tarea.estado_tarea === 'Iniciada' || tarea.estado_tarea === 'En Progreso')
+                                                                                ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                                                                : "bg-brand-50 text-brand-600 hover:bg-brand-600 hover:text-white"
+                                                                        )}
+                                                                        title="Iniciar Tarea"
+                                                                    >
+                                                                        <Play className="w-4 h-4" />
+                                                                        <span className="hidden xl:inline">Iniciar</span>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleFinishTask(tarea.id)}
+                                                                        className="p-2 bg-green-50 text-green-600 hover:bg-green-600 hover:text-white rounded-lg transition flex items-center gap-1 text-xs font-bold"
+                                                                        title="Finalizar Tarea"
+                                                                    >
+                                                                        <CheckCircle className="w-4 h-4" />
+                                                                        <span className="hidden xl:inline">Finalizar</span>
+                                                                    </button>
+                                                                </>
                                                             )}
                                                             <button
                                                                 onClick={() => handleDeleteTask(tarea.id)}

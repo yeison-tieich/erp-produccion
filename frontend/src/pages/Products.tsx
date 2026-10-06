@@ -4,10 +4,11 @@ import {
     Box, Plus, Search, Layers, Activity,
     ShoppingCart, ArrowUpDown, Edit3,
     MoreVertical, User, Tag, MapPin,
-    X, Check, AlertCircle, Package, Trash2, FileText, Eye, Upload, Calendar, History
+    X, Check, AlertCircle, Package, Trash2, FileText, Eye, Upload, Calendar, History, ChevronDown, ChevronUp, LayoutDashboard
 } from 'lucide-react';
 import clsx from 'clsx';
-import { API_URL, BASE_URL } from '../api';
+import { API_URL, getAssetUrl } from '../api';
+import { ProductInventoryDashboard } from '../components/products/ProductInventoryDashboard';
 
 const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -62,6 +63,8 @@ interface Product {
     acabado?: string | null;
     imagen_url?: string | null;
     stock_actual: number;
+    stock_minimo?: number | null;
+    stock_maximo?: number | null;
     ancho_tira?: number | null;
     medidas_pieza?: string | null;
     piezas_lamina_4x8?: string | null;
@@ -83,14 +86,18 @@ const initialNewProductState = {
     medidas_pieza: '',
     empaque_de: '',
     stock_actual: 0,
+    stock_minimo: '',
+    stock_maximo: '',
     precio_venta: '',
 };
 
 export const Products = () => {
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'catalogo'>('dashboard');
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [clientFilter, setClientFilter] = useState('');
+    const [showMoreSummary, setShowMoreSummary] = useState(false);
     const [materialFilter, setMaterialFilter] = useState('');
     const [sortByClientAsc, setSortByClientAsc] = useState(true);
 
@@ -237,7 +244,6 @@ export const Products = () => {
                 form.append('image', compressedFile);
                 await axios.post(`${API_URL}/products/${selectedProduct.id}/image`, form, {
                     headers: {
-                        'Content-Type': 'multipart/form-data',
                         Authorization: `Bearer ${token}`
                     }
                 });
@@ -250,7 +256,6 @@ export const Products = () => {
                 form.append('pdf', editData.pdfFile);
                 await axios.post(`${API_URL}/products/${selectedProduct.id}/pdf`, form, {
                     headers: {
-                        'Content-Type': 'multipart/form-data',
                         Authorization: `Bearer ${token}`
                     }
                 });
@@ -267,9 +272,10 @@ export const Products = () => {
                 }))
             };
 
-            await axios.put(`${API_URL}/products/${selectedProduct.id}`, payload, {
+            const updateResponse = await axios.put(`${API_URL}/products/${selectedProduct.id}`, payload, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
+            setSelectedProduct(updateResponse.data);
             setShowEditModal(false);
             fetchProducts();
             alert('Producto actualizado con éxito');
@@ -357,6 +363,8 @@ export const Products = () => {
             ancho_tira: product.ancho_tira || '',
             medidas_pieza: product.medidas_pieza || '',
             empaque_de: product.empaque_de || '',
+            stock_minimo: product.stock_minimo ?? '',
+            stock_maximo: product.stock_maximo ?? '',
             activo: product.activo ?? true,
             precio_venta: product.precio_venta || '',
             materials: (product.listaMateriales || []).map(m => ({
@@ -388,6 +396,10 @@ export const Products = () => {
             const bn = b.cliente?.nombre || '';
             return an.localeCompare(bn);
         });
+    const summaryProductCandidates = products
+        .filter(p => p.activo !== false)
+        .filter(p => (clientFilter ? String(p.cliente_id) === String(clientFilter) : true));
+    const summaryProducts = summaryProductCandidates.slice(0, showMoreSummary ? 20 : 10);
 
     return (
         <div className="space-y-6 pb-10">
@@ -404,6 +416,110 @@ export const Products = () => {
                     <Plus className="w-5 h-5" /> Nuevo Producto
                 </button>
             </div>
+
+            <div role="tablist" aria-label="Vistas de productos" className="flex w-full max-w-xl gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
+                <button
+                    role="tab"
+                    aria-selected={activeTab === 'dashboard'}
+                    onClick={() => setActiveTab('dashboard')}
+                    className={clsx('flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-3 text-sm font-bold transition sm:text-base', activeTab === 'dashboard' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900')}
+                >
+                    <LayoutDashboard className="h-5 w-5" /> Dashboard de Inventario
+                </button>
+                <button
+                    role="tab"
+                    aria-selected={activeTab === 'catalogo'}
+                    onClick={() => setActiveTab('catalogo')}
+                    className={clsx('flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-3 text-sm font-bold transition sm:text-base', activeTab === 'catalogo' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900')}
+                >
+                    <Package className="h-5 w-5" /> Catálogo
+                </button>
+            </div>
+
+            {activeTab === 'dashboard' && (
+            <>
+            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 className="text-base font-bold text-slate-900">Productos y existencias</h2>
+                        <p className="mt-1 text-sm text-slate-500">Listado de hasta {showMoreSummary ? 20 : 10} productos activos</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                        <span>Cliente</span>
+                        <select
+                            value={clientFilter}
+                            onChange={e => setClientFilter(e.target.value)}
+                            className="min-w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        >
+                            <option value="">Todos los clientes</option>
+                            {clients.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </label>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1050px] text-left text-sm">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                            <tr>
+                                <th className="px-4 py-3 font-semibold">Cliente</th>
+                                <th className="px-4 py-3 font-semibold">Código</th>
+                                <th className="px-4 py-3 font-semibold">Producto</th>
+                                <th className="px-4 py-3 text-right font-semibold">Stock</th>
+                                <th className="px-4 py-3 font-semibold">Tipo de material</th>
+                                <th className="px-4 py-3 font-semibold">Piezas por lámina</th>
+                                <th className="px-4 py-3 font-semibold">Acabado</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {loading ? (
+                                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">Cargando productos...</td></tr>
+                            ) : summaryProducts.length === 0 ? (
+                                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No hay productos para este cliente.</td></tr>
+                            ) : summaryProducts.map(product => {
+                                const materials = Array.from(new Set((product.listaMateriales || []).map(m => m.materiaPrima?.nombre_mp).filter(Boolean)));
+                                return (
+                                    <tr key={product.id} className="hover:bg-slate-50">
+                                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{product.cliente?.nombre || '-'}</td>
+                                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold text-slate-700">{product.sku_producto || '-'}</td>
+                                        <td className="px-4 py-3 font-medium text-slate-900">{product.nombre_producto}</td>
+                                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{Number(product.stock_actual || 0).toLocaleString()}</td>
+                                        <td className="px-4 py-3 text-slate-600">{materials.join(', ') || '-'}</td>
+                                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">4×8: {product.piezas_lamina_4x8 || '-'} <span className="px-1 text-slate-300">|</span> 2×1: {product.piezas_lamina_2x1 || '-'}</td>
+                                        <td className="px-4 py-3 text-slate-600">{product.acabado || '-'}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {summaryProductCandidates.length > 10 && (
+                <div className="-mt-4 flex justify-center">
+                    <button
+                        type="button"
+                        onClick={() => setShowMoreSummary(showMore => !showMore)}
+                        aria-expanded={showMoreSummary}
+                        className="flex items-center gap-2 rounded-b-lg border border-t-0 border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
+                    >
+                        {showMoreSummary ? 'Mostrar solo 10 productos' : 'Ampliar a 20 productos'}
+                        {showMoreSummary ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+                </div>
+            )}
+            </>
+            )}
+
+            {activeTab === 'dashboard' ? (
+                <ProductInventoryDashboard
+                    onProductSelect={(productId) => {
+                        const product = products.find(item => item.id === productId);
+                        if (product) {
+                            setSearchTerm(product.sku_producto);
+                            setActiveTab('catalogo');
+                        }
+                    }}
+                />
+            ) : (
+                <>
 
             {/* Search and Filters bar */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-wrap gap-4 items-center">
@@ -495,7 +611,7 @@ export const Products = () => {
                             <div className="aspect-[4/3] bg-gray-50 relative overflow-hidden mx-4 rounded-2xl flex items-center justify-center">
                                 {product.imagen_url ? (
                                     <img
-                                        src={product.imagen_url.startsWith('http') ? product.imagen_url : `${BASE_URL}${product.imagen_url}`}
+                                        src={getAssetUrl(product.imagen_url)}
                                         alt={product.nombre_producto}
                                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                         onError={(e) => {
@@ -572,6 +688,9 @@ export const Products = () => {
                         </div>
                     ))}
                 </div>
+            )}
+
+                </>
             )}
 
             {/* All other modals (Detail, Stock, OT, Edit) go here... */}
@@ -673,6 +792,28 @@ export const Products = () => {
                                             placeholder="0.00"
                                         />
                                     </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Mínimo</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={newProductData.stock_minimo}
+                                            onChange={e => setNewProductData({ ...newProductData, stock_minimo: e.target.value })}
+                                            placeholder="Sin parametrizar"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Máximo</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={newProductData.stock_maximo}
+                                            onChange={e => setNewProductData({ ...newProductData, stock_maximo: e.target.value })}
+                                            placeholder="Sin parametrizar"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div className="flex gap-4 pt-4">
@@ -698,13 +839,18 @@ export const Products = () => {
 
             {/* Other modals here... */}
             {showDetailModal && selectedProduct && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 print:bg-white print:p-0">
+                <div id="printModalBackdrop" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 print:bg-white print:p-0">
                     <style dangerouslySetInnerHTML={{
                         __html: `
+                        @page { size: A4; margin: 12mm; }
                         @media print {
+                            html, body { width: auto !important; height: auto !important; overflow: visible !important; }
                             body * { visibility: hidden; }
                             #printableArea, #printableArea * { visibility: visible; }
-                            #printableArea { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; box-shadow: none; border: none; }
+                            #printModalBackdrop { position: static !important; inset: auto !important; display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; background: white !important; }
+                            #printableArea { position: static !important; width: 100% !important; max-width: none !important; height: auto !important; max-height: none !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; box-shadow: none; border: none; }
+                            #printableArea .overflow-y-auto, #printableArea .overflow-x-auto { overflow: visible !important; }
+                            #printableArea tr { break-inside: avoid; page-break-inside: avoid; }
                             .print-hide { display: none !important; }
                         }
                     `}} />
@@ -734,9 +880,9 @@ export const Products = () => {
                         </div>
                         <div className="flex-1 overflow-y-auto p-8 lg:p-12 bg-gray-50/50 print:overflow-visible print:p-0">
                             <div className="flex flex-col md:flex-row gap-10">
-                                <div className="w-full md:w-1/2 aspect-square rounded-3xl bg-gray-100 overflow-hidden print-hide">
+                                <div className="w-full md:w-1/2 aspect-square rounded-3xl bg-gray-100 overflow-hidden print:w-1/3 print:aspect-auto print:rounded-none print:bg-white print:overflow-visible print:break-inside-avoid">
                                     {selectedProduct.imagen_url ? (
-                                        <img src={selectedProduct.imagen_url.startsWith('http') ? selectedProduct.imagen_url : `${BASE_URL}${selectedProduct.imagen_url}`} className="w-full h-full object-cover" />
+                                        <img src={getAssetUrl(selectedProduct.imagen_url)} className="w-full h-full object-cover" />
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center"><Box className="w-24 h-24 text-gray-200" /></div>
                                     )}
@@ -952,7 +1098,7 @@ export const Products = () => {
 
                             <div className="bg-brand-50 p-4 rounded-2xl mb-8 flex items-center gap-4 border border-brand-100">
                                 <div className="w-16 h-16 rounded-xl overflow-hidden bg-white shrink-0">
-                                    <img src={selectedProduct.imagen_url ? (selectedProduct.imagen_url.startsWith('http') ? selectedProduct.imagen_url : `${BASE_URL}${selectedProduct.imagen_url}`) : ''} className="w-full h-full object-cover" />
+                                    <img src={selectedProduct.imagen_url ? getAssetUrl(selectedProduct.imagen_url) : ''} className="w-full h-full object-cover" />
                                 </div>
                                 <div>
                                     <h4 className="font-bold text-brand-900 line-clamp-1">{selectedProduct.nombre_producto}</h4>
@@ -1180,6 +1326,28 @@ export const Products = () => {
                                             placeholder="0.00"
                                         />
                                     </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Mínimo</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={editData.stock_minimo}
+                                            onChange={e => setEditData({ ...editData, stock_minimo: e.target.value })}
+                                            placeholder="Sin parametrizar"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Máximo</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
+                                            value={editData.stock_maximo}
+                                            onChange={e => setEditData({ ...editData, stock_maximo: e.target.value })}
+                                            placeholder="Sin parametrizar"
+                                        />
+                                    </div>
 
                                     <div className="col-span-2 space-y-4">
                                         <div className="flex justify-between items-center">
@@ -1280,13 +1448,13 @@ export const Products = () => {
                     </div>
                     <div className="flex-1 bg-white rounded-3xl overflow-hidden relative flex flex-col">
                         <iframe
-                            src={selectedProduct.plano_pdf_url.startsWith('http') ? selectedProduct.plano_pdf_url : `${BASE_URL}${selectedProduct.plano_pdf_url}`}
+                            src={getAssetUrl(selectedProduct.plano_pdf_url)}
                             className="w-full h-full border-none flex-1"
                             title="Plano PDF"
                         />
                         <div className="p-4 bg-gray-50 flex justify-center border-t border-gray-100">
                             <a
-                                href={selectedProduct.plano_pdf_url.startsWith('http') ? selectedProduct.plano_pdf_url : `${BASE_URL}${selectedProduct.plano_pdf_url}`}
+                                href={getAssetUrl(selectedProduct.plano_pdf_url)}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-brand-700 transition flex items-center gap-2"

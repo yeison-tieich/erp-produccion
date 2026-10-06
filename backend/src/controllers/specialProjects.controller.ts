@@ -1,14 +1,30 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { uploadToCloudinary } from '../utils/cloudinary';
 
 const prisma = new PrismaClient();
+const STANDARD_PHASES = ['Diseño', 'Materiales', 'Programación', 'Fabricación', 'Ajuste', 'Prueba', 'Cierre'];
+
+const getPhaseInProject = async (projectId: number, phaseId: number) => {
+  const phase = await prisma.faseProyecto.findFirst({
+    where: { id: phaseId, proyecto_id: projectId },
+    orderBy: { id: 'asc' },
+  });
+
+  if (!phase) {
+    const error = new Error('La fase no pertenece al proyecto indicado');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  return phase;
+};
 
 export const getProyectos = async (req: Request, res: Response) => {
   try {
     const proyectos = await prisma.proyectoEspecial.findMany({
       include: {
-        fases: true,
+          fases: { orderBy: { secuencia: 'asc' } },
         materiales: true,
       },
     });
@@ -24,7 +40,17 @@ export const getProyecto = async (req: Request, res: Response) => {
     const proyecto = await prisma.proyectoEspecial.findUnique({
       where: { id: Number(id) },
       include: {
-        fases: true,
+          fases: { orderBy: { secuencia: 'asc' } },
+          ordenes: {
+            select: {
+              id: true,
+              numero_ot: true,
+              estado_ot: true,
+              fecha_entrega_req: true,
+              tipo_orden: true,
+            },
+            orderBy: { id: 'desc' },
+          },
         historial: { orderBy: { fecha: 'desc' } },
         archivos: true,
         notas: { orderBy: { fecha: 'desc' } },
@@ -79,7 +105,7 @@ export const createProyecto = async (req: Request, res: Response) => {
     const config = await prisma.configuracion.findFirst();
     const maxProyectosActivos = config?.max_proyectos_activos || 10; // Default to 10 if not set
     const proyectosActivos = await prisma.proyectoEspecial.count({
-      where: { estado: 'Activo' },
+      where: { estado: { in: ['Pendiente', 'Activo', 'En proceso', 'En pausa'] } },
     });
 
     if (proyectosActivos >= maxProyectosActivos) {
@@ -89,26 +115,22 @@ export const createProyecto = async (req: Request, res: Response) => {
     }
 
     const { fases } = req.body;
-    let parsedFases = [];
-    if (fases) {
+    let parsedFases: any[] = STANDARD_PHASES.map((nombre) => ({ nombre }));
+    if (fases !== undefined) {
       try {
         parsedFases = typeof fases === 'string' ? JSON.parse(fases) : fases;
-      } catch (e) {
-        console.error('Error parsing fases', e);
+      } catch {
+        return res.status(400).json({ message: 'La configuración de fases no es válida' });
       }
     }
 
-    // Default phases if none provided
-    if (parsedFases.length === 0) {
-      parsedFases = [
-        { nombre: 'Diseño', responsable: 'Andrés Mejía', horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Materiales', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Programación', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Fabricación', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Ajuste', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Prueba', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-        { nombre: 'Cierre', responsable: responsable_tecnico, horas_estimadas: 0, fecha_inicio: new Date(), estado: 'Pendiente' },
-      ];
+    if (!Array.isArray(parsedFases) || parsedFases.length === 0) {
+      return res.status(400).json({ message: 'El proyecto debe tener al menos una fase' });
+    }
+
+    const phaseNames = parsedFases.map((phase: any) => String(phase?.nombre || '').trim());
+    if (phaseNames.some((name: string) => !name) || new Set(phaseNames).size !== phaseNames.length) {
+      return res.status(400).json({ message: 'Las fases deben tener nombres únicos y no vacíos' });
     }
 
     const newProyecto = await prisma.proyectoEspecial.create({
@@ -125,9 +147,10 @@ export const createProyecto = async (req: Request, res: Response) => {
         foto_referencia_url,
         plano_pdf_url,
         fases: {
-          create: parsedFases.map((f: any) => ({
+          create: parsedFases.map((f: any, index: number) => ({
             nombre: f.nombre,
-            responsable: f.nombre === 'Diseño' ? 'Andrés Mejía' : (f.responsable || responsable_tecnico),
+            secuencia: (index + 1) * 10,
+            responsable: f.responsable || responsable_tecnico,
             horas_estimadas: Number(f.horas_estimadas) || 0,
             fecha_inicio: f.fecha_inicio ? new Date(f.fecha_inicio) : new Date(),
             estado: f.estado || 'Pendiente'
@@ -148,7 +171,7 @@ export const createProyecto = async (req: Request, res: Response) => {
 export const updateProyecto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let { userId, fases, ...dataToUpdate } = req.body;
+    let { fases, ...dataToUpdate } = req.body;
 
     // Parse fases as it might come as stringified JSON from FormData
     let parsedFases = fases;
@@ -211,27 +234,36 @@ export const updateProyecto = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Proyecto no encontrado' });
     }
 
-    // Regla: No permitir cambiar de fase sin cerrar la anterior
+    const requestedStatus = dataToUpdate.estado;
+    const validStatuses = ['Pendiente', 'En proceso', 'En pausa', 'Finalizado'];
+    if (requestedStatus !== undefined && !validStatuses.includes(requestedStatus)) {
+      return res.status(400).json({ message: 'Estado de proyecto inválido' });
+    }
+
+    if (requestedStatus === 'Finalizado') {
+      const incompletePhases = proyectoActual.fases.filter(
+        (phase) => !['Completada', 'Cerrada', 'Omitida'].includes(phase.estado)
+      );
+
+      if (incompletePhases.length > 0) {
+        return res.status(400).json({
+          message: `No se puede finalizar el proyecto: quedan fases abiertas (${incompletePhases.map((phase) => phase.nombre).join(', ')}).`,
+        });
+      }
+    }
+
     if (parsedFases && Array.isArray(parsedFases)) {
       for (let i = 0; i < parsedFases.length; i++) {
         const faseActualizada = parsedFases[i];
         const faseOriginal = proyectoActual.fases.find((f: any) => f.id === faseActualizada.id);
 
-        if (faseOriginal && faseActualizada.estado !== faseOriginal.estado && faseActualizada.estado !== 'Cerrada') {
-          const indexOriginal = proyectoActual.fases.findIndex((f: any) => f.id === faseOriginal.id);
-          if (indexOriginal > 0) {
-            const faseAnterior = proyectoActual.fases[indexOriginal - 1];
-            if (faseAnterior.estado !== 'Cerrada' && faseAnterior.estado !== 'Completada') {
-              return res.status(400).json({
-                message: `No se puede cambiar el estado de la fase "${faseActualizada.nombre}" sin haber finalizado la fase anterior "${faseAnterior.nombre}".`,
-              });
-            }
-          }
+        if (!faseOriginal) {
+          return res.status(404).json({ message: 'La fase no pertenece al proyecto indicado' });
         }
-        
+
         // Update phases recursively or individually for specific fields
         await prisma.faseProyecto.update({
-          where: { id: faseActualizada.id },
+          where: { id: faseOriginal.id },
           data: {
             estado: faseActualizada.estado,
             responsable: faseActualizada.responsable,
@@ -251,7 +283,8 @@ export const updateProyecto = async (req: Request, res: Response) => {
     });
 
     // Registrar quién mueve el proyecto
-    if (userId) {
+    const authenticatedUserId = Number((req as any).user?.id);
+    if (Number.isInteger(authenticatedUserId)) {
       let descripcionCambio = 'El proyecto fue actualizado.';
       if (dataToUpdate.estado && dataToUpdate.estado !== proyectoActual.estado) {
         descripcionCambio = `El estado del proyecto cambió de "${proyectoActual.estado}" a "${dataToUpdate.estado}".`;
@@ -260,7 +293,7 @@ export const updateProyecto = async (req: Request, res: Response) => {
       await prisma.historialCambios.create({
         data: {
           proyecto_id: Number(id),
-          usuario_id: Number(userId),
+          usuario_id: authenticatedUserId,
           descripcion: descripcionCambio,
         },
       });
@@ -269,13 +302,16 @@ export const updateProyecto = async (req: Request, res: Response) => {
     res.json(updatedProyecto);
   } catch (error: any) {
     console.error('Update project error:', error);
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
 // Utility to calculate project progress
-const calculateProjectProgress = async (projectId: number) => {
-  const परियोजना = await prisma.proyectoEspecial.findUnique({
+const calculateProjectProgress = async (
+  projectId: number,
+  db: PrismaClient | Prisma.TransactionClient = prisma
+) => {
+  const परियोजना = await db.proyectoEspecial.findUnique({
     where: { id: projectId },
     include: {
       fases: true,
@@ -285,22 +321,21 @@ const calculateProjectProgress = async (projectId: number) => {
 
   if (!परियोजना) return 0;
 
-  // Base calculation: % of completed phases (each phase is 100/6 = ~16.6%)
-  // But we can refine it: if there are pieces, use piece progress for 'Fabricación' phase
   const totalFases = परियोजना.fases.length;
-  const fasesCompletadas = परियोजना.fases.filter(f => f.estado === 'Completada' || f.estado === 'Cerrada').length;
-  
-  let progress = (fasesCompletadas / totalFases) * 100;
+  if (totalFases === 0) return 0;
 
-  // If there are pieces and fabrication is 'En Progreso', adjust slightly based on piece average
-  if (परियोजना.piezas.length > 0) {
-    const avgPieceAvance = परियोजना.piezas.reduce((acc, p) => acc + (p.avance_fabricacion || 0), 0) / परियोजना.piezas.length;
-    // Fabrication is usually phase 3 (index 2)
-    const fabricacionFase = परियोजना.fases.find(f => f.nombre === 'Fabricación');
-    if (fabricacionFase && fabricacionFase.estado === 'En Progreso') {
-       // Optionally adjust total progress here
-    }
-  }
+  const totalPiezas = परियोजना.piezas.reduce((total, pieza) => total + Math.max(pieza.cantidad, 0), 0);
+  const avancePiezas = totalPiezas > 0
+    ? परियोजना.piezas.reduce(
+        (total, pieza) => total + Math.max(pieza.cantidad, 0) * Math.min(Math.max(pieza.avance_fabricacion || 0, 0), 100),
+        0
+      ) / totalPiezas
+    : null;
+
+  const progress = परियोजना.fases.reduce((total, fase) => {
+    if (fase.nombre === 'Fabricación' && avancePiezas !== null) return total + avancePiezas;
+    return total + (['Completada', 'Cerrada', 'Omitida'].includes(fase.estado) ? 100 : 0);
+  }, 0) / totalFases;
 
   return Math.min(Math.round(progress), 100);
 };
@@ -310,30 +345,119 @@ export const updateFase = async (req: Request, res: Response) => {
     const { id, faseId } = req.params;
     const { estado, responsable, horas_reales, maquina_id, personal_id, costo_operacion, observaciones } = req.body;
 
-    const updatedFase = await prisma.faseProyecto.update({
-      where: { id: Number(faseId) },
-      data: {
-        estado,
-        responsable,
-        horas_reales: horas_reales ? Number(horas_reales) : undefined,
-        maquina_id: maquina_id ? Number(maquina_id) : undefined,
-        personal_id: personal_id ? Number(personal_id) : undefined,
-        costo_operacion: costo_operacion ? Number(costo_operacion) : undefined,
-        observaciones,
-        fecha_fin: (estado === 'Completada' || estado === 'Cerrada') ? new Date() : undefined
-      }
-    });
+    const projectId = Number(id);
+    const phaseId = Number(faseId);
+    if (!Number.isInteger(projectId) || !Number.isInteger(phaseId)) {
+      return res.status(400).json({ message: 'Identificadores de proyecto o fase inválidos' });
+    }
 
-    // Recalculate project progress
-    const newProgress = await calculateProjectProgress(Number(id));
-    await prisma.proyectoEspecial.update({
-      where: { id: Number(id) },
-      data: { porcentaje_avance: newProgress }
+    const phase = await getPhaseInProject(projectId, phaseId);
+    const isClosing = estado === 'Completada' || estado === 'Cerrada';
+
+    const parsedHours = horas_reales === undefined || horas_reales === '' ? undefined : Number(horas_reales);
+    if (parsedHours !== undefined && (!Number.isFinite(parsedHours) || parsedHours < 0)) {
+      return res.status(400).json({ message: 'Las horas reales deben ser un número mayor o igual a cero' });
+    }
+
+    const updatedFase = await prisma.$transaction(async (tx) => {
+      const updated = await tx.faseProyecto.update({
+        where: { id: phase.id },
+        data: {
+          estado,
+          responsable,
+          horas_reales: parsedHours,
+          maquina_id: maquina_id ? Number(maquina_id) : undefined,
+          personal_id: personal_id ? Number(personal_id) : undefined,
+          costo_operacion: costo_operacion ? Number(costo_operacion) : undefined,
+          observaciones,
+          fecha_fin: isClosing ? new Date() : estado ? null : undefined
+        }
+      });
+
+      const newProgress = await calculateProjectProgress(projectId, tx);
+      await tx.proyectoEspecial.update({
+        where: { id: projectId },
+        data: { porcentaje_avance: newProgress }
+      });
+
+      return { ...updated, porcentaje_avance: newProgress };
     });
 
     res.json(updatedFase);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+export const transitionFase = async (req: Request, res: Response) => {
+  try {
+    const projectId = Number(req.params.id);
+    const targetPhaseId = Number(req.body.fase_destino_id);
+    if (!Number.isInteger(projectId) || !Number.isInteger(targetPhaseId)) {
+      return res.status(400).json({ message: 'El proyecto y la fase destino deben ser válidos' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const proyecto = await tx.proyectoEspecial.findUnique({
+        where: { id: projectId },
+        include: { fases: { orderBy: { secuencia: 'asc' } } },
+      });
+      if (!proyecto) {
+        const error = new Error('Proyecto no encontrado');
+        (error as any).statusCode = 404;
+        throw error;
+      }
+      if (['Verificación', 'Finalizado'].includes(proyecto.estado)) {
+        const error = new Error('El proyecto está bloqueado para cambios');
+        (error as any).statusCode = 409;
+        throw error;
+      }
+
+      const targetPhase = proyecto.fases.find((phase) => phase.id === targetPhaseId);
+      if (!targetPhase) {
+        const error = new Error('La fase destino no pertenece al proyecto');
+        (error as any).statusCode = 404;
+        throw error;
+      }
+
+      const activePhase = proyecto.fases.find((phase) => phase.estado === 'En Progreso');
+      if (activePhase?.id !== targetPhase.id) {
+        if (activePhase) {
+          await tx.faseProyecto.update({
+            where: { id: activePhase.id },
+            data: { estado: 'Completada', fecha_fin: new Date() },
+          });
+        }
+        await tx.faseProyecto.update({
+          where: { id: targetPhase.id },
+          data: { estado: 'En Progreso', fecha_fin: null },
+        });
+      }
+
+      const porcentaje_avance = await calculateProjectProgress(projectId, tx);
+      const updatedProject = await tx.proyectoEspecial.update({
+        where: { id: projectId },
+        data: { estado: 'En proceso', porcentaje_avance },
+        include: { fases: { orderBy: { secuencia: 'asc' } } },
+      });
+
+      const userId = Number((req as any).user?.id);
+      if (Number.isInteger(userId) && activePhase?.id !== targetPhase.id) {
+        await tx.historialCambios.create({
+          data: {
+            proyecto_id: projectId,
+            usuario_id: userId,
+            descripcion: `Fase activa cambiada de "${activePhase?.nombre || 'Sin fase'}" a "${targetPhase.nombre}".`,
+          },
+        });
+      }
+
+      return updatedProject;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || (error.code === 'P2034' ? 409 : 500)).json({ message: error.message });
   }
 };
 
@@ -342,27 +466,44 @@ export const addFase = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { nombre, responsable, horas_estimadas, fecha_inicio, estado } = req.body;
 
-    const newFase = await prisma.faseProyecto.create({
-      data: {
-        proyecto_id: Number(id),
-        nombre,
-        responsable: nombre === 'Diseño' ? 'Andrés Mejía' : (responsable || ''),
-        horas_estimadas: Number(horas_estimadas) || 0,
-        fecha_inicio: fecha_inicio ? new Date(fecha_inicio) : new Date(),
-        estado: estado || 'Pendiente',
-      }
-    });
+    if (typeof nombre !== 'string' || !nombre.trim()) {
+      return res.status(400).json({ message: 'El nombre de la fase es obligatorio' });
+    }
 
-    // Recalculate progress
-    const newProgress = await calculateProjectProgress(Number(id));
-    await prisma.proyectoEspecial.update({
-      where: { id: Number(id) },
-      data: { porcentaje_avance: newProgress }
+    const newFase = await prisma.$transaction(async (tx) => {
+      const projectId = Number(id);
+      const proyecto = await tx.proyectoEspecial.findUnique({ where: { id: projectId }, select: { id: true } });
+      if (!proyecto) {
+        const error = new Error('Proyecto no encontrado');
+        (error as any).statusCode = 404;
+        throw error;
+      }
+
+      const ultimaFase = await tx.faseProyecto.findFirst({
+        where: { proyecto_id: projectId },
+        orderBy: { secuencia: 'desc' },
+        select: { secuencia: true },
+      });
+      const created = await tx.faseProyecto.create({
+        data: {
+          proyecto_id: projectId,
+          nombre: nombre.trim(),
+          secuencia: (ultimaFase?.secuencia || 0) + 10,
+          responsable: responsable || '',
+          horas_estimadas: Number(horas_estimadas) || 0,
+          fecha_inicio: fecha_inicio ? new Date(fecha_inicio) : new Date(),
+          estado: estado || 'Pendiente',
+        }
+      });
+
+      const newProgress = await calculateProjectProgress(projectId, tx);
+      await tx.proyectoEspecial.update({ where: { id: projectId }, data: { porcentaje_avance: newProgress } });
+      return created;
     });
 
     res.status(201).json(newFase);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
@@ -374,25 +515,19 @@ export const deleteFase = async (req: Request, res: Response) => {
     // For simplicity, we check if there are pieces records or materials linked to this phase
     // But since materials and pieces are linked to the project, not the phase, 
     // we might want to check if the phase has observations or real hours.
-    const fase = await prisma.faseProyecto.findUnique({
-      where: { id: Number(faseId) }
-    });
-
-    if (!fase) return res.status(404).json({ message: 'Fase no encontrada' });
+    const fase = await getPhaseInProject(Number(id), Number(faseId));
 
     if (fase.horas_reales && Number(fase.horas_reales) > 0) {
       return res.status(400).json({ message: 'No se puede eliminar una fase que ya tiene horas reales registradas.' });
     }
 
-    await prisma.faseProyecto.delete({
-      where: { id: Number(faseId) }
-    });
-
-    // Recalculate progress
-    const newProgress = await calculateProjectProgress(Number(id));
-    await prisma.proyectoEspecial.update({
-      where: { id: Number(id) },
-      data: { porcentaje_avance: newProgress }
+    await prisma.$transaction(async (tx) => {
+      await tx.faseProyecto.delete({ where: { id: Number(faseId) } });
+      const newProgress = await calculateProjectProgress(Number(id), tx);
+      await tx.proyectoEspecial.update({
+        where: { id: Number(id) },
+        data: { porcentaje_avance: newProgress }
+      });
     });
 
     res.status(204).send();
@@ -404,14 +539,22 @@ export const deleteFase = async (req: Request, res: Response) => {
 export const deleteProyecto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const projectId = Number(id);
+    if (!Number.isInteger(projectId)) return res.status(400).json({ message: 'Identificador de proyecto inválido' });
+
+    const piezas = await prisma.piezaProyecto.findMany({ where: { proyecto_id: projectId }, select: { id: true } });
+    const pieceIds = piezas.map((pieza) => pieza.id);
 
     const transaction = await prisma.$transaction([
-      prisma.cargaMaquina.deleteMany({ where: { proyecto_id: Number(id) } }),
-      prisma.historialCambios.deleteMany({ where: { proyecto_id: Number(id) } }),
-      prisma.archivoAdjunto.deleteMany({ where: { proyecto_id: Number(id) } }),
-      prisma.notaTecnica.deleteMany({ where: { proyecto_id: Number(id) } }),
-      prisma.faseProyecto.deleteMany({ where: { proyecto_id: Number(id) } }),
-      prisma.proyectoEspecial.delete({ where: { id: Number(id) } }),
+      prisma.registroPieza.deleteMany({ where: { pieza_id: { in: pieceIds } } }),
+      prisma.piezaProyecto.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.materialRequeridoProyecto.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.cargaMaquina.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.historialCambios.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.archivoAdjunto.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.notaTecnica.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.faseProyecto.deleteMany({ where: { proyecto_id: projectId } }),
+      prisma.proyectoEspecial.delete({ where: { id: projectId } }),
     ]);
 
     res.status(204).send();
@@ -477,34 +620,69 @@ export const addNote = async (req: Request, res: Response) => {
 export const updateMaterials = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { materiales } = req.body; // Array de { descripcion, peso_kg, observaciones }
+    const { materiales } = req.body;
+    const projectId = Number(id);
 
-    // Reemplazamos todos los materiales
-    await prisma.materialRequeridoProyecto.deleteMany({
-      where: { proyecto_id: Number(id) }
-    });
-
-    if (materiales && Array.isArray(materiales) && materiales.length > 0) {
-      await prisma.materialRequeridoProyecto.createMany({
-        data: materiales.map((m: any) => ({
-          proyecto_id: Number(id),
-          descripcion: m.descripcion,
-          tipo: m.tipo,
-          cantidad: m.cantidad ? Number(m.cantidad) : 1,
-          peso_kg: m.peso_kg ? Number(m.peso_kg) : 0,
-          estado: m.estado || "Pendiente",
-          observaciones: m.observaciones
-        }))
-      });
+    if (!Number.isInteger(projectId) || !Array.isArray(materiales)) {
+      return res.status(400).json({ message: 'La lista de materiales no es válida' });
     }
 
-    const updatedMateriales = await prisma.materialRequeridoProyecto.findMany({
-      where: { proyecto_id: Number(id) }
+    const updatedMateriales = await prisma.$transaction(async (tx) => {
+      const proyecto = await tx.proyectoEspecial.findUnique({ where: { id: projectId }, select: { id: true } });
+      if (!proyecto) {
+        const error = new Error('Proyecto no encontrado');
+        (error as any).statusCode = 404;
+        throw error;
+      }
+
+      const existentes = await tx.materialRequeridoProyecto.findMany({ where: { proyecto_id: projectId }, select: { id: true } });
+      const existingIds = new Set(existentes.map((material) => material.id));
+      const retainedIds: number[] = [];
+
+      for (const material of materiales) {
+        const descripcion = typeof material.descripcion === 'string' ? material.descripcion.trim() : '';
+        const cantidad = material.cantidad === undefined ? 1 : Number(material.cantidad);
+        const pesoKg = material.peso_kg === undefined ? 0 : Number(material.peso_kg);
+        if (!descripcion || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(pesoKg) || pesoKg < 0) {
+          const error = new Error('Cada material requiere descripción, cantidad positiva y peso no negativo');
+          (error as any).statusCode = 400;
+          throw error;
+        }
+
+        const data = {
+          descripcion,
+          tipo: material.tipo || null,
+          cantidad,
+          peso_kg: pesoKg,
+          estado: material.estado || 'Pendiente',
+          observaciones: material.observaciones || null,
+        };
+
+        if (material.id !== undefined && material.id !== null) {
+          const materialId = Number(material.id);
+          if (!existingIds.has(materialId)) {
+            const error = new Error('El material no pertenece a este proyecto');
+            (error as any).statusCode = 400;
+            throw error;
+          }
+          await tx.materialRequeridoProyecto.update({ where: { id: materialId }, data });
+          retainedIds.push(materialId);
+        } else {
+          const created = await tx.materialRequeridoProyecto.create({ data: { ...data, proyecto_id: projectId } });
+          retainedIds.push(created.id);
+        }
+      }
+
+      await tx.materialRequeridoProyecto.deleteMany({
+        where: { proyecto_id: projectId, ...(retainedIds.length ? { id: { notIn: retainedIds } } : {}) },
+      });
+
+      return tx.materialRequeridoProyecto.findMany({ where: { proyecto_id: projectId }, orderBy: { id: 'asc' } });
     });
 
     res.json(updatedMateriales);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
@@ -613,51 +791,173 @@ export const addPiece = async (req: Request, res: Response) => {
   }
 };
 
+export const addPiecesBulk = async (req: Request, res: Response) => {
+  try {
+    const projectId = Number(req.params.id);
+    const { requestId, rows } = req.body;
+
+    if (!Number.isInteger(projectId) || typeof requestId !== 'string' || !requestId.trim() || !Array.isArray(rows) || rows.length === 0 || rows.length > 200) {
+      return res.status(400).json({ message: 'La carga requiere un identificador y entre 1 y 200 piezas' });
+    }
+
+    const preparedRows = rows.map((row: any, index: number) => {
+      const nombre = typeof row.nombre === 'string' ? row.nombre.trim() : '';
+      const cantidad = row.cantidad === undefined || row.cantidad === '' ? 1 : Number(row.cantidad);
+      const dimensions = ['largo', 'ancho', 'espesor', 'diametro'].map((field) => {
+        if (row[field] === undefined || row[field] === '') return null;
+        const value = Number(row[field]);
+        if (!Number.isFinite(value) || value < 0) throw new Error(`Dimensión inválida en la fila ${index + 1}`);
+        return value;
+      });
+
+      if (!nombre || !Number.isInteger(cantidad) || cantidad < 1) {
+        throw new Error(`La fila ${index + 1} requiere nombre y cantidad entera positiva`);
+      }
+
+      return {
+        proyecto_id: projectId,
+        codigo: typeof row.codigo === 'string' && row.codigo.trim() ? row.codigo.trim() : null,
+          clave_idempotencia: `${projectId}:${requestId.trim()}:${index}`,
+        nombre,
+        cantidad,
+        requiere_montaje: row.requiere_montaje === true || row.requiere_montaje === 'true',
+        observaciones: typeof row.observaciones === 'string' ? row.observaciones.trim() || null : null,
+        tipo_material: typeof row.tipo_material === 'string' ? row.tipo_material.trim() || null : null,
+        largo: dimensions[0],
+        ancho: dimensions[1],
+        espesor: dimensions[2],
+        diametro: dimensions[3],
+      };
+    });
+
+    const codes = preparedRows.flatMap((row) => row.codigo ? [row.codigo] : []);
+    if (new Set(codes).size !== codes.length) {
+      return res.status(400).json({ message: 'Hay códigos de pieza repetidos en la carga' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const proyecto = await tx.proyectoEspecial.findUnique({ where: { id: projectId }, select: { id: true } });
+      if (!proyecto) {
+        const error = new Error('Proyecto no encontrado');
+        (error as any).statusCode = 404;
+        throw error;
+      }
+
+      const keys = preparedRows.map((row) => row.clave_idempotencia);
+      const existingRows = await tx.piezaProyecto.findMany({ where: { clave_idempotencia: { in: keys } } });
+      if (existingRows.length < preparedRows.length && codes.length > 0) {
+        const existingCodes = await tx.piezaProyecto.findMany({
+          where: { proyecto_id: projectId, codigo: { in: codes }, clave_idempotencia: { notIn: keys } },
+          select: { codigo: true },
+        });
+        if (existingCodes.length > 0) {
+          const error = new Error(`Ya existe el código ${existingCodes[0].codigo} en este proyecto`);
+          (error as any).statusCode = 409;
+          throw error;
+        }
+      }
+
+      await tx.piezaProyecto.createMany({ data: preparedRows, skipDuplicates: true });
+      const piezas = await tx.piezaProyecto.findMany({
+        where: { clave_idempotencia: { in: keys } },
+        orderBy: { id: 'asc' },
+      });
+
+      return { piezas, existentes: existingRows.length };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    res.status(201).json({ ...result, creadas: result.piezas.length - result.existentes });
+  } catch (error: any) {
+    res.status(error.statusCode || (error.code === 'P2034' ? 409 : 400)).json({ message: error.message });
+  }
+};
+
 export const addPieceRecord = async (req: Request, res: Response) => {
   try {
     const { pieceId } = req.params;
-    const { tipo, descripcion, avance_reportado } = req.body;
+    const { tipo, descripcion, avance_reportado, clave_idempotencia, cantidad_buena, cantidad_mala, cantidad_retrabajo } = req.body;
+    const id = Number(pieceId);
+    const progress = avance_reportado === undefined || avance_reportado === '' ? null : Number(avance_reportado);
+    const quantities = [cantidad_buena, cantidad_mala, cantidad_retrabajo].map((value) => value === undefined ? 0 : Number(value));
+    const hasQuantityReport = [cantidad_buena, cantidad_mala, cantidad_retrabajo].some((value) => value !== undefined);
 
-    const piece = await prisma.piezaProyecto.findUnique({ where: { id: Number(pieceId) } });
-    if (!piece) return res.status(404).json({ message: 'Pieza no encontrada' });
+    if (!Number.isInteger(id) || !['FABRICACION', 'MONTAJE'].includes(tipo) || typeof descripcion !== 'string' || !descripcion.trim()) {
+      return res.status(400).json({ message: 'El registro requiere una pieza, tipo y descripción válidos' });
+    }
+    if ((progress !== null && (!Number.isFinite(progress) || progress < 0 || progress > 100)) || quantities.some((value) => !Number.isInteger(value) || value < 0)) {
+      return res.status(400).json({ message: 'El avance debe estar entre 0 y 100 y las cantidades no pueden ser negativas' });
+    }
+    if (hasQuantityReport && quantities.every((value) => value === 0)) {
+      return res.status(400).json({ message: 'Registra al menos una pieza buena, rechazada o en retrabajo' });
+    }
 
-    const newRecord = await prisma.registroPieza.create({
-      data: {
-        pieza_id: Number(pieceId),
-        tipo,
-        descripcion,
-        avance_reportado: avance_reportado ? Number(avance_reportado) : null
+    if (clave_idempotencia) {
+      const existingRecord = await prisma.registroPieza.findUnique({ where: { clave_idempotencia } });
+      if (existingRecord) return res.json(existingRecord);
+    }
+
+    const newRecord = await prisma.$transaction(async (tx) => {
+      const piece = await tx.piezaProyecto.findUnique({ where: { id } });
+      if (!piece) {
+        const error = new Error('Pieza no encontrada');
+        (error as any).statusCode = 404;
+        throw error;
       }
-    });
 
-    // If it's a FABRICACION record, update the piece's cumulative progress
-    if (tipo === 'FABRICACION' && avance_reportado !== undefined) {
-       // We can either sum or set. Let's assume progress is cumulative but we shouldn't exceed 100.
-       const totalAvance = Math.min((piece.avance_fabricacion || 0) + Number(avance_reportado), 100);
-       await prisma.piezaProyecto.update({
-         where: { id: Number(pieceId) },
-         data: { avance_fabricacion: totalAvance }
-       });
-    }
+      if (tipo === 'FABRICACION' && hasQuantityReport) {
+        const totals = await tx.registroPieza.aggregate({
+          where: { pieza_id: id, tipo: 'FABRICACION' },
+          _sum: { cantidad_buena: true, cantidad_mala: true },
+        });
+        const alreadyProcessed = Number(totals._sum.cantidad_buena || 0) + Number(totals._sum.cantidad_mala || 0);
+        if (alreadyProcessed + quantities[0] + quantities[1] > piece.cantidad) {
+          const error = new Error(`El reporte supera las ${piece.cantidad} unidades planificadas para esta pieza`);
+          (error as any).statusCode = 400;
+          throw error;
+        }
+      }
 
-    // If it's MONTAJE, we could mark as completed if described or just log it
-    if (tipo === 'MONTAJE' && descripcion.toLowerCase().includes('complet')) {
-       await prisma.piezaProyecto.update({
-         where: { id: Number(pieceId) },
-         data: { estado_montaje: 'Completado' }
-       });
-    }
+      const record = await tx.registroPieza.create({
+        data: {
+          pieza_id: id,
+          tipo,
+          descripcion: descripcion.trim(),
+          avance_reportado: progress,
+          cantidad_buena: quantities[0],
+          cantidad_mala: quantities[1],
+          cantidad_retrabajo: quantities[2],
+          clave_idempotencia: clave_idempotencia || null,
+        }
+      });
 
-    // Recalculate project progress whenever a piece is updated
-    const newProgress = await calculateProjectProgress(Number(piece.proyecto_id));
-    await prisma.proyectoEspecial.update({
-      where: { id: Number(piece.proyecto_id) },
-      data: { porcentaje_avance: newProgress }
-    });
+      if (tipo === 'FABRICACION' && hasQuantityReport) {
+        const totals = await tx.registroPieza.aggregate({
+          where: { pieza_id: id, tipo: 'FABRICACION' },
+          _sum: { cantidad_buena: true, cantidad_mala: true },
+        });
+        const procesadas = Number(totals._sum.cantidad_buena || 0) + Number(totals._sum.cantidad_mala || 0);
+        const avanceFabricacion = piece.cantidad > 0 ? Math.min((procesadas / piece.cantidad) * 100, 100) : 0;
+        await tx.piezaProyecto.update({ where: { id }, data: { avance_fabricacion: Math.max(piece.avance_fabricacion, avanceFabricacion) } });
+      } else if (tipo === 'FABRICACION' && progress !== null) {
+        await tx.piezaProyecto.update({ where: { id }, data: { avance_fabricacion: Math.min(piece.avance_fabricacion + progress, 100) } });
+      }
+
+      if (tipo === 'MONTAJE' && descripcion.toLowerCase().includes('complet')) {
+        await tx.piezaProyecto.update({ where: { id }, data: { estado_montaje: 'Completado' } });
+      }
+
+      const newProgress = await calculateProjectProgress(piece.proyecto_id, tx);
+      await tx.proyectoEspecial.update({ where: { id: piece.proyecto_id }, data: { porcentaje_avance: newProgress } });
+      return record;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     res.status(201).json(newRecord);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    if (error.code === 'P2002' && req.body.clave_idempotencia) {
+      const existingRecord = await prisma.registroPieza.findUnique({ where: { clave_idempotencia: req.body.clave_idempotencia } });
+      if (existingRecord) return res.json(existingRecord);
+    }
+    res.status(error.statusCode || (['P2002', 'P2034'].includes(error.code) ? 409 : 500)).json({ message: error.message });
   }
 };
 
@@ -684,7 +984,7 @@ export const updatePiece = async (req: Request, res: Response) => {
       ancho,
       espesor,
       diametro,
-      userId 
+      userId
     } = req.body;
 
     const currentPiece = await prisma.piezaProyecto.findUnique({ where: { id: Number(pieceId) } });

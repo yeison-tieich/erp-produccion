@@ -240,30 +240,34 @@ export const Pedidos = () => {
     };
 
     return (
-        <div className="max-w-[1600px] mx-auto space-y-8 animate-in fade-in duration-700">
+        <div className="space-y-6 pb-12 animate-in fade-in duration-300">
             {/* Header section */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-brand-500 rounded-full -mr-48 -mt-48 opacity-20 blur-3xl"></div>
-                <div className="relative z-10">
-                    <h1 className="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">Control de Pedidos</h1>
-                    <p className="text-slate-400 font-bold mt-1 uppercase text-[10px] tracking-widest flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50"></div>
-                        Seguimiento Logístico & Ventas
-                    </p>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                        <Package className="w-8 h-8 text-brand-600" />
+                        Control de Pedidos
+                    </h1>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2.5 py-0.5 rounded-full">
+                            <div className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-pulse"></div>
+                            Seguimiento Logístico & Ventas
+                        </span>
+                    </div>
                 </div>
 
-                <div className="flex flex-wrap gap-3 relative z-10">
+                <div className="flex flex-wrap gap-2 relative z-10">
                     <button
                         onClick={handleSync}
                         disabled={syncing}
-                        className="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-2xl flex items-center gap-2 transition-all font-black border border-white/10 backdrop-blur-md"
+                        className="bg-white text-slate-700 px-5 py-2.5 rounded-xl flex items-center gap-2 border border-slate-200 hover:bg-slate-50 transition-all font-bold text-sm shadow-sm"
                     >
-                        <RefreshCw className={clsx("w-5 h-5", syncing && "animate-spin")} />
+                        <RefreshCw className={clsx("w-4 h-4", syncing && "animate-spin")} />
                         {syncing ? 'Sincronizando...' : 'Sincronizar'}
                     </button>
 
-                    <label className="bg-brand-500 hover:bg-brand-600 text-white px-6 py-3 rounded-2xl flex items-center gap-2 transition-all font-black cursor-pointer shadow-xl shadow-brand-500/20">
-                        <FileUp className="w-5 h-5" />
+                    <label className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all font-bold text-sm shadow-md shadow-brand-100 cursor-pointer">
+                        <FileUp className="w-4 h-4" />
                         Importar Excel
                         <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleImportExcel} />
                     </label>
@@ -287,9 +291,9 @@ export const Pedidos = () => {
                             });
                             setShowModal(true);
                         }}
-                        className="bg-white text-slate-900 px-6 py-3 rounded-2xl flex items-center gap-2 border-2 border-white hover:bg-transparent hover:text-white transition-all font-black shadow-xl"
+                        className="bg-brand-600 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all font-bold text-sm hover:bg-brand-700 shadow-md shadow-brand-100"
                     >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
                         Nuevo Pedido
                     </button>
                 </div>
@@ -303,12 +307,12 @@ export const Pedidos = () => {
                     { label: 'En Producción', value: filteredPedidos.filter(p => p.estado === 'EN PRODUCCIÓN').length, icon: RefreshCw, color: 'text-indigo-600', bg: 'bg-indigo-50' },
                     { label: 'Saldo Pendiente', value: filteredPedidos.reduce((acc, p) => acc + Number(p.saldo_pendiente || 0), 0), icon: Truck, color: 'text-orange-600', bg: 'bg-orange-50' },
                 ].map((stat, i) => (
-                    <div key={i} className="bg-white p-7 rounded-[2.5rem] border border-gray-100 shadow-sm flex items-center gap-5 hover:translate-y-[-4px] transition-all group">
-                        <div className={clsx("p-4 rounded-3xl group-hover:scale-110 transition-transform", stat.bg, stat.color)}>
-                            <stat.icon className="w-8 h-8" />
+                    <div key={i} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4 hover:-translate-y-1 transition-all group">
+                        <div className={clsx("p-3.5 rounded-2xl group-hover:scale-105 transition-transform", stat.bg, stat.color)}>
+                            <stat.icon className="w-6 h-6" />
                         </div>
                         <div>
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{stat.label}</p>
+                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{stat.label}</p>
                             <p className="text-2xl font-black text-slate-900">{stat.value}</p>
                         </div>
                     </div>
@@ -316,21 +320,21 @@ export const Pedidos = () => {
             </div>
 
             {/* Filter Section */}
-            <div className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 flex flex-col xl:flex-row gap-5 items-center">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col xl:flex-row gap-4 items-center">
                 <div className="relative flex-1 group w-full">
-                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-brand-500 transition-colors" />
+                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-brand-500 transition-colors w-5 h-5" />
                     <input
                         type="text"
                         placeholder="Filtrar por OC, Ref, Código, Cliente o Descripción..."
-                        className="w-full pl-14 pr-8 py-5 bg-gray-50 rounded-[2rem] border-none focus:ring-2 focus:ring-brand-500 transition-all font-bold text-slate-700 placeholder:text-gray-300 shadow-inner"
+                        className="w-full pl-12 pr-6 py-3 bg-gray-50 rounded-2xl border border-gray-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all text-sm font-medium text-slate-700 placeholder:text-gray-400"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                     />
                 </div>
 
-                <div className="flex flex-wrap gap-4 w-full xl:w-auto items-center justify-center">
+                <div className="flex flex-wrap gap-3 w-full xl:w-auto items-center justify-center">
                     <select
-                        className="px-6 py-4 bg-gray-50 rounded-[1.5rem] border-none font-bold text-slate-700 outline-none focus:ring-2 focus:ring-brand-500 shadow-inner appearance-none min-w-[200px]"
+                        className="px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white min-w-[200px]"
                         value={clientFilter}
                         onChange={e => setClientFilter(e.target.value)}
                     >
@@ -341,7 +345,7 @@ export const Pedidos = () => {
                     </select>
 
                     <select
-                        className="px-6 py-4 bg-gray-50 rounded-[1.5rem] border-none font-bold text-slate-700 outline-none focus:ring-2 focus:ring-brand-500 shadow-inner appearance-none min-w-[180px]"
+                        className="px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white min-w-[180px]"
                         value={statusFilter}
                         onChange={e => setStatusFilter(e.target.value)}
                     >
@@ -353,22 +357,22 @@ export const Pedidos = () => {
                         <option value="ENTREGADO">✅ Entregado/Hecho</option>
                     </select>
 
-                    <div className="flex items-center gap-3 px-6 py-4 bg-gray-50 rounded-[1.5rem] shadow-inner font-black text-[10px] text-slate-600 uppercase tracking-widest border border-transparent hover:border-brand-200 transition-all">
+                    <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 font-bold text-[11px] text-slate-600 uppercase tracking-wider transition-all">
                         <input
                             type="checkbox"
                             id="showDelivered"
-                            className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer"
+                            className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 cursor-pointer"
                             checked={showDelivered}
                             onChange={e => setShowDelivered(e.target.checked)}
                         />
                         <label htmlFor="showDelivered" className="cursor-pointer select-none">Ver Entregados</label>
                     </div>
 
-                    <div className="flex items-center gap-3 px-6 py-4 bg-gray-50 rounded-[1.5rem] shadow-inner font-black text-[10px] text-slate-600 uppercase tracking-widest border border-transparent hover:border-brand-200 transition-all">
+                    <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 font-bold text-[11px] text-slate-600 uppercase tracking-wider transition-all">
                         <input
                             type="checkbox"
                             id="balancesOnly"
-                            className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer"
+                            className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 cursor-pointer"
                             checked={balancesOnly}
                             onChange={e => setBalancesOnly(e.target.checked)}
                         />
@@ -377,26 +381,26 @@ export const Pedidos = () => {
 
                     <button
                         onClick={handleExportExcel}
-                        className="p-5 bg-slate-900 text-white rounded-[1.5rem] hover:bg-slate-800 transition shadow-xl hover:scale-105 active:scale-95"
+                        className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 transition"
                         title="Exportar a Excel"
                     >
-                        <FileDown className="w-6 h-6" />
+                        <FileDown className="w-5 h-5" />
                     </button>
                 </div>
             </div>
 
             {/* Table Section */}
-            <div className="bg-white rounded-[4rem] shadow-2xl border border-gray-100 overflow-hidden ring-1 ring-black/5">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead>
-                            <tr className="bg-slate-900 border-b border-white/5 text-[9px] font-black uppercase tracking-[0.3em] text-slate-500">
-                                <th className="px-10 py-8">Venta / Origen</th>
-                                <th className="px-8 py-8">Técnico / Producto</th>
-                                <th className="px-8 py-8 text-center">Cantidades</th>
-                                <th className="px-8 py-8 text-center">Financiero</th>
-                                <th className="px-8 py-8">Logística</th>
-                                <th className="px-8 py-8 text-right">Mantenimiento</th>
+                            <tr className="bg-slate-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                <th className="px-6 py-5">Venta / Origen</th>
+                                <th className="px-6 py-5">Técnico / Producto</th>
+                                <th className="px-6 py-5 text-center">Cantidades</th>
+                                <th className="px-6 py-5 text-center">Financiero</th>
+                                <th className="px-6 py-5">Logística</th>
+                                <th className="px-6 py-5 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -556,22 +560,19 @@ export const Pedidos = () => {
 
             {/* Modal for Create/Edit */}
             {showModal && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-[4rem] shadow-2xl max-w-4xl w-full p-12 relative overflow-hidden flex flex-col max-h-[92vh] border border-white/20">
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-50 rounded-full -mr-32 -mt-32 opacity-40 blur-3xl"></div>
-
-                        <div className="relative z-10 flex justify-between items-center mb-10">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-gray-100">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-100">
                             <div>
-                                <h2 className="text-4xl font-black text-slate-900 tracking-tighter">
-                                    {selectedPedido ? 'Editar Registro' : 'Nuevo Registro'}
+                                <h2 className="text-xl font-black text-slate-900">
+                                    {selectedPedido ? 'Editar Pedido' : 'Nuevo Pedido'}
                                 </h2>
-                                <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-2 flex items-center gap-2">
-                                    <div className="w-2 h-2 bg-brand-500 rounded-full"></div>
+                                <p className="text-xs font-bold text-brand-600 mt-1 uppercase tracking-wider">
                                     Consolidado de Orden de Compra
                                 </p>
                             </div>
-                            <button onClick={() => setShowModal(false)} className="p-4 hover:bg-slate-100 rounded-full transition-all hover:rotate-90">
-                                <X className="w-8 h-8 text-slate-300" />
+                            <button onClick={() => setShowModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl transition-all">
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
@@ -744,10 +745,10 @@ export const Pedidos = () => {
                             <button
                                 type="submit"
                                 disabled={saving}
-                                className="w-full bg-slate-900 text-white py-8 rounded-[3rem] font-black text-2xl shadow-3xl hover:bg-slate-800 transition-all flex items-center justify-center gap-4 disabled:opacity-50 mt-10 hover:scale-[1.02] active:scale-[0.98]"
+                                className="w-full bg-brand-600 text-white py-4 rounded-2xl font-bold text-sm shadow-md shadow-brand-100 hover:bg-brand-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-6"
                             >
-                                {saving ? <Loader2 className="w-8 h-8 animate-spin" /> : <Save className="w-8 h-8" />}
-                                {selectedPedido ? 'CONFIRMAR CAMBIOS' : 'REGISTRAR PEDIDO'}
+                                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                                {selectedPedido ? 'Confirmar Cambios' : 'Registrar Pedido'}
                             </button>
                         </form>
                     </div>
@@ -756,26 +757,25 @@ export const Pedidos = () => {
 
             {/* Modal for OT Generation */}
             {showOTModal && selectedPedido && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-50 flex items-center justify-center p-6 animate-in zoom-in duration-300">
-                    <div className="bg-white rounded-[4rem] shadow-2xl max-w-2xl w-full p-12 relative overflow-hidden border border-white/20">
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-50 rounded-full -mr-32 -mt-32 opacity-40 blur-3xl"></div>
-
-                        <div className="relative z-10 flex justify-between items-center mb-8">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in zoom-in duration-300">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden border border-gray-100">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-100">
                             <div>
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
-                                    <Factory className="w-8 h-8 text-brand-600" />
+                                <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                                    <Factory className="w-5 h-5 text-brand-600" />
                                     Crear Orden de Trabajo
                                 </h2>
-                                <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-2">
-                                    Desde Pedido: {selectedPedido.orden_compra || 'S/N'}
+                                <p className="text-xs font-bold text-gray-500 mt-1">
+                                    Desde Pedido: <span className="text-brand-600 uppercase tracking-wider">{selectedPedido.orden_compra || 'S/N'}</span>
                                 </p>
                             </div>
-                            <button onClick={() => setShowOTModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-all">
-                                <X className="w-6 h-6 text-slate-300" />
+                            <button onClick={() => setShowOTModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl transition-all">
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        <div className="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100">
+                        <div className="p-6 overflow-y-auto">
+                            <div className="bg-slate-50 p-6 rounded-2xl mb-6 border border-slate-100">
                             <div className="flex items-start gap-4">
                                 <div className="p-3 bg-white rounded-2xl shadow-sm">
                                     <ClipboardList className="w-6 h-6 text-brand-600" />
@@ -823,12 +823,13 @@ export const Pedidos = () => {
                             <button
                                 type="submit"
                                 disabled={generatingOT}
-                                className="w-full bg-brand-600 text-white py-6 rounded-[2rem] font-black text-xl shadow-xl shadow-brand-500/20 hover:bg-brand-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 mt-4"
+                                className="w-full bg-brand-600 text-white py-4 rounded-2xl font-bold text-sm shadow-md shadow-brand-100 hover:bg-brand-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-4"
                             >
-                                {generatingOT ? <Loader2 className="w-6 h-6 animate-spin" /> : <Plus className="w-6 h-6" />}
-                                GENERAR ORDEN DE TRABAJO
+                                {generatingOT ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                                Generar Orden de Trabajo
                             </button>
                         </form>
+                        </div>
                     </div>
                 </div>
             )}

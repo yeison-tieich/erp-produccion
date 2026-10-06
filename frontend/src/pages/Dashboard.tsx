@@ -24,8 +24,6 @@ interface DashboardStats {
     total_personal: number;
     alertas_stock: number;
     costo_total_mes: number;
-    piezas_buenas_mes: number;
-    piezas_malas_mes: number;
     tiempo_promedio_orden: number;
     ordenes_por_estado: { estado: string; cantidad: number }[];
     produccion_semanal: { dia: string; piezas: number }[];
@@ -35,7 +33,7 @@ interface DashboardStats {
 const PIE_COLORS = ['#facc15', '#22c55e', '#3b82f6', '#ef4444', '#a855f7'];
 
 export const Dashboard = () => {
-    const { user } = useAuthStore();
+    const { user, token } = useAuthStore();
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [loading, setLoading] = useState(true);
     const [selectedArea, setSelectedArea] = useState('TODAS');
@@ -50,12 +48,14 @@ export const Dashboard = () => {
     const fetchDashboardData = async (area?: string) => {
         try {
             setLoading(true);
+            const authToken = token || localStorage.getItem('token');
             const res = await axios.get(`${API_URL}/dashboard/stats`, {
-                params: { area: area || selectedArea }
+                params: { area: area || selectedArea },
+                headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
             });
             setStats(res.data);
-        } catch (error) {
-            console.error('Error fetching dashboard data:', error);
+        } catch (error: any) {
+            console.error('Error fetching dashboard data:', error.response?.status, error.response?.data || error);
         } finally {
             setLoading(false);
         }
@@ -86,12 +86,6 @@ export const Dashboard = () => {
             </div>
         );
     }
-
-    // Calculate quality rate
-    const totalPiezas = stats.piezas_buenas_mes + stats.piezas_malas_mes;
-    const tasaCalidad = totalPiezas > 0
-        ? ((stats.piezas_buenas_mes / totalPiezas) * 100).toFixed(1)
-        : '0';
 
     // KPI Cards data
     const kpiCards = [
@@ -207,40 +201,6 @@ export const Dashboard = () => {
                         </div>
                     </GlassCard>
                 ))}
-            </div>
-
-            {/* Quality Row: 3 cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <GlassCard className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-green-50">
-                        <CheckCircle className="w-6 h-6 text-green-600" />
-                    </div>
-                    <div>
-                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Piezas Buenas (Mes)</p>
-                        <h3 className="text-3xl font-bold text-green-600 tracking-tight">{stats.piezas_buenas_mes.toLocaleString()}</h3>
-                        <p className="text-xs text-slate-400 mt-1">Piezas aprobadas en calidad</p>
-                    </div>
-                </GlassCard>
-                <GlassCard className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-red-50">
-                        <AlertTriangle className="w-6 h-6 text-red-600" />
-                    </div>
-                    <div>
-                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Mermas / Scrap</p>
-                        <h3 className="text-3xl font-bold text-red-600 tracking-tight">{stats.piezas_malas_mes.toLocaleString()}</h3>
-                        <p className="text-xs text-slate-400 mt-1">Piezas rechazadas</p>
-                    </div>
-                </GlassCard>
-                <GlassCard className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-blue-50">
-                        <TrendingUp className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div>
-                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Tasa de Calidad</p>
-                        <h3 className="text-3xl font-bold text-blue-600 tracking-tight">{tasaCalidad}%</h3>
-                        <p className="text-xs text-slate-400 mt-1">Ratio de aprobación</p>
-                    </div>
-                </GlassCard>
             </div>
 
             {/* Charts Row */}

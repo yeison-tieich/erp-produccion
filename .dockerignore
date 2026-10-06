@@ -1,0 +1,17 @@
+.git
+**/node_modules
+**/dist
+**/build
+**/.env
+**/.env.*
+!backend/.env.production.example
+backend/prisma/*.db
+backend/prisma/*.db.*
+backend/prisma/data_dump.json
+backend/prisma/productos-data.csv
+backend/prisma/dev.sqbpro
+**/*.sql
+**/*.dump
+frontend/android
+frontend/.gradle
+frontend/capacitor-cordova-android-plugins

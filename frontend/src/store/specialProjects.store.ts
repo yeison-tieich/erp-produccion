@@ -3,6 +3,9 @@ import axios from 'axios';
 import { API_URL } from '../api';
 import { ProyectoEspecial } from '../types';
 
+const getApiErrorMessage = (error: any, fallback: string) =>
+  error.response?.data?.message || error.message || fallback;
+
 interface SpecialProjectsState {
   projects: ProyectoEspecial[];
   project: ProyectoEspecial | null;
@@ -19,10 +22,13 @@ interface SpecialProjectsState {
   // Piece management
   fetchPieces: (id: string) => Promise<void>;
   addPiece: (id: string, piece: any) => Promise<void>;
+  addPiecesBulk: (id: string, requestId: string, pieces: any[]) => Promise<void>;
   addPieceRecord: (pieceId: string, record: any) => Promise<void>;
   updatePiece: (pieceId: string, piece: any) => Promise<void>;
   deletePiece: (pieceId: string) => Promise<void>;
   updatePhase: (projectId: string, phaseId: string, phaseData: any) => Promise<void>;
+  transitionPhase: (projectId: string, phaseId: string) => Promise<void>;
+  quickUpdatePhase: (projectId: string, phaseId: string, phaseData: any) => Promise<void>;
   addPhase: (projectId: string, phaseData: any) => Promise<void>;
   deletePhase: (projectId: string, phaseId: string) => Promise<void>;
 }
@@ -38,7 +44,7 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const response = await axios.get(`${API_URL}/special-projects`);
       set({ projects: response.data, loading: false });
     } catch (error: any) {
-      set({ error: error.message, loading: false });
+      set({ error: getApiErrorMessage(error, 'No se pudieron cargar los proyectos'), loading: false });
     }
   },
   fetchProject: async (id: string) => {
@@ -47,35 +53,36 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const response = await axios.get(`${API_URL}/special-projects/${id}`);
       set({ project: response.data, loading: false });
     } catch (error: any) {
-      set({ error: error.message, loading: false });
+      set({ error: getApiErrorMessage(error, 'No se pudo cargar el proyecto'), loading: false });
     }
   },
   createProject: async (project) => {
     set({ loading: true, error: null });
     try {
       const isFormData = project instanceof FormData;
-      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' };
+      const headers = isFormData ? undefined : { 'Content-Type': 'application/json' };
       
       await axios.post(`${API_URL}/special-projects`, project, { headers });
       // After creating, fetch all projects again to update the list
       const response = await axios.get(`${API_URL}/special-projects`);
       set({ projects: response.data, loading: false });
     } catch (error: any) {
-      set({ error: error.message, loading: false });
+      set({ error: getApiErrorMessage(error, 'No se pudo crear el proyecto'), loading: false });
+      throw error;
     }
   },
   updateProject: async (id, project) => {
     set({ loading: true, error: null });
     try {
       const isFormData = project instanceof FormData;
-      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' };
+      const headers = isFormData ? undefined : { 'Content-Type': 'application/json' };
       
       await axios.put(`${API_URL}/special-projects/${id}`, project, { headers });
       // After updating, fetch the project again to get the latest data
       const response = await axios.get(`${API_URL}/special-projects/${id}`);
       set({ project: response.data, loading: false });
     } catch (error: any) {
-      set({ error: error.message, loading: false });
+      set({ error: getApiErrorMessage(error, 'No se pudo actualizar el proyecto'), loading: false });
     }
   },
   deleteProject: async (id) => {
@@ -88,7 +95,7 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
         loading: false,
       }));
     } catch (error: any) {
-      set({ error: error.message, loading: false });
+      set({ error: getApiErrorMessage(error, 'No se pudo eliminar el proyecto'), loading: false });
     }
   },
   addNote: async (projectId, note) => {
@@ -98,7 +105,7 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const response = await axios.get(`${API_URL}/special-projects/${projectId}`);
       set({ project: response.data });
     } catch (error: any) {
-      set({ error: error.message });
+      set({ error: getApiErrorMessage(error, 'No se pudo agregar la nota') });
     }
   },
   updateMaterials: async (projectId, materiales) => {
@@ -108,7 +115,7 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const response = await axios.get(`${API_URL}/special-projects/${projectId}`);
       set({ project: response.data });
     } catch (error: any) {
-      set({ error: error.message });
+      set({ error: getApiErrorMessage(error, 'No se pudieron actualizar los materiales') });
     }
   },
   uploadAttachment: async (projectId, file) => {
@@ -116,13 +123,13 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const formData = new FormData();
       formData.append('archivo', file);
       await axios.post(`${API_URL}/special-projects/${projectId}/attachments`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: undefined
       });
       // Refresh project details
       const response = await axios.get(`${API_URL}/special-projects/${projectId}`);
       set({ project: response.data });
     } catch (error: any) {
-      set({ error: error.message });
+      set({ error: getApiErrorMessage(error, 'No se pudo cargar el archivo') });
     }
   },
   fetchPieces: async (id) => {
@@ -132,14 +139,14 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
         project: state.project?.id === Number(id) ? { ...state.project, piezas: response.data } : state.project
       }));
     } catch (error: any) {
-      console.error('Error fetching pieces', error);
+      set({ error: getApiErrorMessage(error, 'No se pudieron cargar las piezas') });
     }
   },
   addPiece: async (id, piece) => {
     set({ loading: true, error: null });
     try {
       const isFormData = piece instanceof FormData;
-      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' };
+      const headers = isFormData ? undefined : { 'Content-Type': 'application/json' };
       
       await axios.post(`${API_URL}/special-projects/${id}/pieces`, piece, { headers });
       const store = useSpecialProjectsStore.getState();
@@ -149,25 +156,44 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       set({ error: error.response?.data?.message || 'Error al agregar pieza', loading: false });
     }
   },
+  addPiecesBulk: async (id, requestId, pieces) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axios.post(`${API_URL}/special-projects/${id}/pieces/bulk`, { requestId, rows: pieces });
+      set(state => ({
+        project: state.project?.id === Number(id)
+          ? { ...state.project, piezas: [...(state.project.piezas || []), ...response.data.piezas] }
+          : state.project,
+        loading: false,
+      }));
+      return response.data;
+    } catch (error: any) {
+      const message = getApiErrorMessage(error, 'No se pudo guardar el despiece');
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
   addPieceRecord: async (pieceId, record) => {
     set({ loading: true, error: null });
     try {
       await axios.post(`${API_URL}/special-projects/pieces/${pieceId}/records`, record);
-      const store = useSpecialProjectsStore.getState();
-      if (store.project) {
-        await store.fetchPieces(store.project.id.toString());
-        await store.fetchProject(store.project.id.toString());
+      const projectId = useSpecialProjectsStore.getState().project?.id;
+      if (projectId) {
+        const response = await axios.get(`${API_URL}/special-projects/${projectId}`);
+        set({ project: response.data });
       }
       set({ loading: false });
     } catch (error: any) {
-      set({ error: error.response?.data?.message || 'Error al agregar registro', loading: false });
+      const message = getApiErrorMessage(error, 'Error al agregar registro');
+      set({ error: message, loading: false });
+      throw error;
     }
   },
   updatePiece: async (pieceId, piece) => {
     set({ loading: true, error: null });
     try {
       const isFormData = piece instanceof FormData;
-      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' };
+      const headers = isFormData ? undefined : { 'Content-Type': 'application/json' };
       
       await axios.put(`${API_URL}/special-projects/pieces/${pieceId}`, piece, { headers });
       const store = useSpecialProjectsStore.getState();
@@ -185,7 +211,7 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       const store = useSpecialProjectsStore.getState();
       if (store.project) await store.fetchPieces(store.project.id.toString());
     } catch (error: any) {
-      console.error('Error deleting piece', error);
+      set({ error: getApiErrorMessage(error, 'No se pudo eliminar la pieza') });
     }
   },
   updatePhase: async (projectId, phaseId, phaseData) => {
@@ -197,6 +223,45 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       set({ loading: false });
     } catch (error: any) {
       set({ error: error.response?.data?.message || 'Error al actualizar fase', loading: false });
+    }
+  },
+  transitionPhase: async (projectId, phaseId) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axios.post(`${API_URL}/special-projects/${projectId}/fases/transition`, { fase_destino_id: Number(phaseId) });
+      set(state => ({
+        project: state.project?.id === Number(projectId) ? response.data : state.project,
+        projects: state.projects.map(project => project.id === Number(projectId) ? { ...project, ...response.data } : project),
+        loading: false,
+      }));
+    } catch (error: any) {
+      const message = getApiErrorMessage(error, 'No se pudo cambiar la fase activa');
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+  quickUpdatePhase: async (projectId, phaseId, phaseData) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axios.put(`${API_URL}/special-projects/${projectId}/fases/${phaseId}`, phaseData);
+      set(state => {
+        const updatedProject = state.project?.id === Number(projectId)
+          ? {
+              ...state.project,
+              porcentaje_avance: response.data.porcentaje_avance,
+              fases: state.project.fases.map(phase => phase.id === Number(phaseId) ? { ...phase, ...response.data } : phase),
+            }
+          : state.project;
+        return {
+          project: updatedProject,
+          projects: state.projects.map(project => project.id === Number(projectId) ? { ...project, ...updatedProject } : project),
+          loading: false,
+        };
+      });
+    } catch (error: any) {
+      const message = getApiErrorMessage(error, 'No se pudo actualizar la fase');
+      set({ error: message, loading: false });
+      throw error;
     }
   },
   addPhase: async (projectId, phaseData) => {

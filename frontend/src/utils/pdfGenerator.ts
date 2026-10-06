@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { BASE_URL } from '../api';
+import { BASE_URL, getAssetUrl } from '../api';
 
 export const generateOrderPDF = async (order: any) => {
     const doc = new jsPDF();
@@ -9,7 +9,7 @@ export const generateOrderPDF = async (order: any) => {
     // 1. Load Logo
     const loadLogo = async () => {
         try {
-            const logoUrl = `${BASE_URL}/public/Logo.png`;
+            const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
             const response = await fetch(logoUrl);
             if (!response.ok) return null;
             const blob = await response.blob();
@@ -36,7 +36,7 @@ export const generateOrderPDF = async (order: any) => {
     };
 
     const logo = await loadLogo();
-    const pieceImage = order.imagen_url ? await loadImage(order.imagen_url.startsWith('http') ? order.imagen_url : `${BASE_URL}${order.imagen_url}`) : null;
+    const pieceImage = order.imagen_url ? await loadImage(getAssetUrl(order.imagen_url)) : null;
 
     // --- HEADER ---
     let yPos = 10;
@@ -222,7 +222,7 @@ export const generateMachineFichaPDF = async (machine: any) => {
     // 1. Load Logo
     const loadLogo = async () => {
         try {
-            const logoUrl = `${BASE_URL}/public/Logo.png`;
+            const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
             const response = await fetch(logoUrl);
             if (!response.ok) return null;
             const blob = await response.blob();
@@ -249,7 +249,7 @@ export const generateMachineFichaPDF = async (machine: any) => {
     };
 
     const logo = await loadLogo();
-    const machineImage = machine.foto_url ? await loadImage(`${BASE_URL}/images/${machine.foto_url}`) : null;
+    const machineImage = machine.foto_url ? await loadImage(getAssetUrl(machine.foto_url)) : null;
 
     // --- HEADER ---
     let yPos = 10;

@@ -1,13 +1,16 @@
 import React, { useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useSpecialProjectsStore } from '../../store/specialProjects.store';
-import { API_URL } from '../../api';
+import { API_URL, getAssetUrl } from '../../api';
 import ProcessModal from './ProcessModal';
 import EditProjectModal from './EditProjectModal';
-import { Plus, Trash2, FileText, Clock, History, StickyNote, Factory, Target, File as FileIcon, X, Edit3 } from 'lucide-react';
+import PieceMatrix from './PieceMatrix';
+import QuickPhaseModal from './QuickPhaseModal';
+import { Plus, Trash2, FileText, Clock, History, StickyNote, Factory, Target, File as FileIcon, X, Edit3, TableProperties, Zap } from 'lucide-react';
 
 const SpecialProjectDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { project, fetchProject, deleteProject, addNote, updateMaterials, uploadAttachment, fetchPieces, addPiece, deletePiece, updatePhase } = useSpecialProjectsStore();
   const [isPhaseModalOpen, setIsPhaseModalOpen] = React.useState(false);
   const [selectedFase, setSelectedFase] = React.useState<any>(null);
@@ -39,6 +42,8 @@ const SpecialProjectDetails: React.FC = () => {
     plano_2: null
   });
   const [isAddingPiece, setIsAddingPiece] = React.useState(false);
+  const [isPieceMatrixOpen, setIsPieceMatrixOpen] = React.useState(false);
+  const [isQuickPhaseOpen, setIsQuickPhaseOpen] = React.useState(false);
   const { error: storeError } = useSpecialProjectsStore();
 
   useEffect(() => {
@@ -46,6 +51,24 @@ const SpecialProjectDetails: React.FC = () => {
       fetchProject(id);
     }
   }, [id, fetchProject]);
+
+  useEffect(() => {
+    if (!project || project.id !== Number(id)) return;
+    const action = searchParams.get('action');
+    if (action === 'pieces') {
+      setIsPieceMatrixOpen(true);
+    } else if (action === 'advance') {
+      const activePhase = project.fases?.find(phase => phase.estado === 'En Progreso')
+        || project.fases?.find(phase => !['Completada', 'Cerrada', 'Omitida'].includes(phase.estado));
+      if (activePhase) {
+        setSelectedFase(activePhase);
+        setIsQuickPhaseOpen(true);
+      }
+    } else {
+      return;
+    }
+    setSearchParams({}, { replace: true });
+  }, [id, project, searchParams, setSearchParams]);
 
   if (!project) {
     return (
@@ -79,6 +102,11 @@ const SpecialProjectDetails: React.FC = () => {
   const openPhaseModal = (fase: any) => {
     setSelectedFase(fase);
     setIsPhaseModalOpen(true);
+  };
+
+  const openQuickPhase = (fase: any) => {
+    setSelectedFase(fase);
+    setIsQuickPhaseOpen(true);
   };
 
   const getTotalHours = () => {
@@ -302,7 +330,7 @@ const SpecialProjectDetails: React.FC = () => {
               {project.foto_referencia_url ? (
                 <div className="relative overflow-hidden rounded-2xl aspect-video">
                   <img 
-                    src={`${API_URL.replace('/api', '')}${project.foto_referencia_url}`} 
+                    src={getAssetUrl(project.foto_referencia_url)}
                     alt="Referencia" 
                     className="w-full h-full object-cover transition duration-500 group-hover:scale-110"
                   />
@@ -321,7 +349,7 @@ const SpecialProjectDetails: React.FC = () => {
               <h3 className="text-gray-900 font-black text-lg mb-1 uppercase tracking-tight">Plano Técnico</h3>
               {project.plano_pdf_url ? (
                 <a 
-                  href={`${API_URL.replace('/api', '')}${project.plano_pdf_url}`} 
+                  href={getAssetUrl(project.plano_pdf_url)}
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="bg-blue-500 text-white px-8 py-2 rounded-xl font-black text-sm hover:bg-blue-600 transition-all shadow-lg shadow-blue-100"
@@ -350,6 +378,12 @@ const SpecialProjectDetails: React.FC = () => {
                 }`}
               >
                 {isAddingPiece ? 'Cancelar' : '+ Nueva Pieza'}
+              </button>
+              <button
+                onClick={() => setIsPieceMatrixOpen(true)}
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
+              >
+                <TableProperties className="h-4 w-4" /> Carga rápida
               </button>
             </div>
 
@@ -480,7 +514,7 @@ const SpecialProjectDetails: React.FC = () => {
                       <div className="flex gap-2 mt-2">
                         {pieza.plano_url_1 && (
                           <a 
-                            href={`${API_URL.replace('/api', '')}${pieza.plano_url_1}`} 
+                            href={getAssetUrl(pieza.plano_url_1)}
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="bg-blue-50 text-blue-600 p-1.5 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-1.5 text-[10px] font-black uppercase"
@@ -490,7 +524,7 @@ const SpecialProjectDetails: React.FC = () => {
                         )}
                         {pieza.plano_url_2 && (
                           <a 
-                            href={`${API_URL.replace('/api', '')}${pieza.plano_url_2}`} 
+                            href={getAssetUrl(pieza.plano_url_2)}
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="bg-brand-50 text-brand-600 p-1.5 rounded-lg hover:bg-brand-100 transition-all flex items-center gap-1.5 text-[10px] font-black uppercase"
@@ -643,7 +677,6 @@ const SpecialProjectDetails: React.FC = () => {
                 <div 
                   key={fase.id} 
                   className="relative pl-10 group"
-                  onClick={() => openPhaseModal(fase)}
                 >
                   <div className={`absolute -left-[14px] top-1 w-6 h-6 rounded-full border-4 border-white shadow-md transition-all duration-300 ${
                     fase.estado === 'Completada' || fase.estado === 'Cerrada' 
@@ -651,7 +684,7 @@ const SpecialProjectDetails: React.FC = () => {
                     : fase.estado === 'En Progreso' ? 'bg-brand-500 animate-pulse' : 'bg-gray-200'
                   }`}></div>
                   
-                  <div className="p-6 bg-gray-50/50 rounded-[1.5rem] border border-transparent hover:border-brand-200 hover:bg-white hover:shadow-xl transition-all cursor-pointer">
+                  <div className="p-6 bg-gray-50/50 rounded-[1.5rem] border border-transparent hover:border-brand-200 hover:bg-white hover:shadow-xl transition-all">
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="text-xl font-black text-gray-900 group-hover:text-brand-600 transition-colors uppercase tracking-tight">{fase.nombre}</h3>
@@ -660,6 +693,23 @@ const SpecialProjectDetails: React.FC = () => {
                         </p>
                       </div>
                       <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openQuickPhase(fase)}
+                          disabled={isLocked}
+                          aria-label={`Registrar avance de ${fase.nombre}`}
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-40"
+                        >
+                          <Zap className="h-3.5 w-3.5" /> Avance
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPhaseModal(fase)}
+                          aria-label={`Editar detalles de ${fase.nombre}`}
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          <FileText className="h-3.5 w-3.5" /> Detalles
+                        </button>
                         <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${
                            fase.estado.includes('Comp') || fase.estado === 'Cerrada' ? 'bg-green-100 text-green-700' : 'bg-brand-50 text-brand-600'
                         }`}>
@@ -725,6 +775,28 @@ const SpecialProjectDetails: React.FC = () => {
              </div>
           </div>
 
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-base font-black text-slate-900">Órdenes vinculadas</h2>
+              <Link to="/orders" className="text-xs font-bold text-teal-700 hover:underline">Ver órdenes</Link>
+            </div>
+            {project.ordenes?.length ? (
+              <div className="space-y-2">
+                {project.ordenes.map(order => (
+                  <div key={order.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-800">{order.numero_ot}</p>
+                      <p className="text-xs text-slate-500">{order.tipo_orden.split('_').join(' ')}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-600">{order.estado_ot}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">No hay órdenes vinculadas.</p>
+            )}
+          </div>
+
           {/* Technical Notes Widget */}
           <div className="bg-white p-7 rounded-[2rem] shadow-sm border border-gray-100">
             <h2 className="text-lg font-black mb-6 flex items-center gap-2">
@@ -763,7 +835,7 @@ const SpecialProjectDetails: React.FC = () => {
               {project.archivos?.map((file) => (
                 <a 
                   key={file.id} 
-                  href={`${API_URL.replace('/api', '')}${file.url_archivo}`} 
+                  href={getAssetUrl(file.url_archivo)}
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-brand-50 transition-colors group"
@@ -823,6 +895,18 @@ const SpecialProjectDetails: React.FC = () => {
             setIsPhaseModalOpen(false);
           }}
         />
+      )}
+
+      {isQuickPhaseOpen && selectedFase && (
+        <QuickPhaseModal
+          projectId={project.id}
+          phase={selectedFase}
+          onClose={() => setIsQuickPhaseOpen(false)}
+        />
+      )}
+
+      {isPieceMatrixOpen && (
+        <PieceMatrix projectId={project.id} onClose={() => setIsPieceMatrixOpen(false)} />
       )}
 
       {isEditProjectModalOpen && project && (

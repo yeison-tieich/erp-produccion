@@ -19,9 +19,22 @@ import { Settings as SettingsPage } from './pages/Settings';
 import { ToolsInventory } from './pages/ToolsInventory';
 import { ToolLoans } from './pages/ToolLoans';
 import { Pedidos } from './pages/Pedidos';
+import { UsersPage } from './pages/UsersPage';
+import { FinancesPage } from './pages/FinancesPage';
+import { QualityDashboard } from './pages/quality/QualityDashboard';
+import { InspectionsPage } from './pages/quality/InspectionsPage';
+import { NonConformancesPage } from './pages/quality/NonConformancesPage';
+import { CorrectiveActionsPage } from './pages/quality/CorrectiveActionsPage';
+import { ControlPlansPage } from './pages/quality/ControlPlansPage';
+import { TraceabilityPage } from './pages/quality/TraceabilityPage';
+import { SuppliersQualityPage } from './pages/quality/SuppliersQualityPage';
+import { CustomerClaimsPage } from './pages/quality/CustomerClaimsPage';
+import { RisksAndAuditsPage } from './pages/quality/RisksAndAuditsPage';
+import { DocumentsSGCPage } from './pages/quality/DocumentsSGCPage';
 import { useAuthStore } from './store/auth.store';
 import { databaseService } from './services/databaseService';
 import { useEffect } from 'react';
+
 
 function App() {
     const { user } = useAuthStore();
@@ -62,9 +75,24 @@ function App() {
                     <Route path="/tools" element={<ToolsInventory />} />
                     <Route path="/loans" element={<ToolLoans />} />
                     <Route path="/pedidos" element={<Pedidos />} />
+                    <Route path="/users" element={<UsersPage />} />
+                    <Route path="/finances" element={<FinancesPage />} />
+
+                    {/* Quality Module Routes (ISO 9001:2015) */}
+                    <Route path="/quality" element={<QualityDashboard />} />
+                    <Route path="/quality/inspections" element={<InspectionsPage />} />
+                    <Route path="/quality/non-conformances" element={<NonConformancesPage />} />
+                    <Route path="/quality/corrective-actions" element={<CorrectiveActionsPage />} />
+                    <Route path="/quality/control-plans" element={<ControlPlansPage />} />
+                    <Route path="/quality/traceability" element={<TraceabilityPage />} />
+                    <Route path="/quality/suppliers" element={<SuppliersQualityPage />} />
+                    <Route path="/quality/claims" element={<CustomerClaimsPage />} />
+                    <Route path="/quality/risks" element={<RisksAndAuditsPage />} />
+                    <Route path="/quality/documents" element={<DocumentsSGCPage />} />
 
                     {/* Operator Routes */}
                     <Route path="/tasks" element={<Tasks />} />
+
 
                     {/* Fallback */}
                     <Route path="*" element={<Navigate to="/" replace />} />

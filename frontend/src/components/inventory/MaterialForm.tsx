@@ -106,7 +106,6 @@ export const MaterialForm: React.FC<MaterialFormProps> = ({
                                 </div>
                             </div>
                             
-                            {/* Stock and Reserve Editing */}
                             <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                 <div>
                                     <label className="block text-xs font-black text-brand-600 uppercase mb-1">Stock Actual</label>

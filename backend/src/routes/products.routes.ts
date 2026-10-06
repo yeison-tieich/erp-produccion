@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { getProducts, createProduct, updateProduct, adjustProductStock, uploadProductImage, deleteProduct, uploadProductPDF, getProductMovements, updateProductRoutes } from '../controllers/products.controller';
+import { getProducts, getProductsDashboard, createProduct, updateProduct, adjustProductStock, uploadProductImage, deleteProduct, uploadProductPDF, getProductMovements, updateProductRoutes } from '../controllers/products.controller';
 import { authenticateToken, authorizeRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -12,6 +12,7 @@ const upload = multer({ storage });
 
 
 router.get('/', authenticateToken, getProducts);
+router.get('/dashboard', authenticateToken, getProductsDashboard);
 router.get('/:id/movements', authenticateToken, getProductMovements);
 router.post('/', authenticateToken, authorizeRole(['Administrador']), createProduct);
 router.put('/:id', authenticateToken, authorizeRole(['Administrador']), updateProduct);

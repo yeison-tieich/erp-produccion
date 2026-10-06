@@ -1,19 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { API_URL, BASE_URL } from '../api';
+import { API_URL } from '../api';
 import {
     Package, Plus, Search, AlertCircle, ArrowUpCircle,
-    Edit3, X, Eye, History, ShoppingCart, Filter,
-    ChevronRight, ArrowDownCircle, FileText, Download,
-    RotateCcw
+    Edit3, X, Eye, History, Filter, RotateCcw,
+    BarChart2, Lock, ShieldCheck, ArrowDownCircle,
+    RefreshCw, ChevronDown, CheckSquare, Layers
 } from 'lucide-react';
 import { InventoryStats } from '../components/inventory/InventoryStats';
+import { StockStackedBarChart } from '../components/inventory/StockStackedBarChart';
+import { InventoryConsistencyWidget } from '../components/inventory/InventoryConsistencyWidget';
 import { MaterialForm } from '../components/inventory/MaterialForm';
 import { AddStockModal } from '../components/inventory/AddStockModal';
-import clsx from 'clsx';
 import { formatNumber, formatUnit, formatCurrency } from '../utils/formatting';
 import { materiaPrimaRepository } from '../repositories/materiaPrimaRepository';
-import { inventarioRepository } from '../repositories/inventarioRepository';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface Material {
     id: number;
@@ -25,713 +27,753 @@ interface Material {
     devoluciones?: number;
     punto_reorden: number;
     unidad_medida_stock: string;
-    espesor: number;
-    ancho: number;
-    largo: number;
-    densidad: number;
-    peso_unitario: number;
+    espesor?: number;
+    ancho?: number;
+    largo?: number;
+    densidad?: number;
+    peso_unitario?: number;
     costo_unitario?: number;
 }
 
-interface Movement {
-    id: number;
-    tipo_movimiento: string;
-    cantidad: number;
-    fecha_hora: string;
-    referencia_id: string | null;
-    imagen_remision_url: string | null;
-    cliente?: { nombre: string };
+interface DashboardData {
+    kpis: {
+        stockTotal: number;
+        stockReservado: number;
+        stockDisponible: number;
+        totalReferencias: number;
+        bajoMinimo: number;
+        agotadas: number;
+    };
+    chartData: any[];
+    ultimosMovimientos: any[];
 }
 
+type Tab = 'dashboard' | 'catalogo' | 'historial' | 'reservas' | 'auditoria';
+
+const emptyMaterial = {
+    sku_mp: '',
+    nombre_mp: '',
+    categoria_mp: '',
+    unidad_medida_stock: '',
+    stock_actual: 0,
+    stock_reservado: 0,
+    devoluciones: 0,
+    punto_reorden: 0,
+    espesor: 0,
+    ancho: 0,
+    largo: 0,
+    densidad: 7.85,
+    peso_unitario: 0,
+    costo_unitario: 0,
+};
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+
+const statusInfo = (m: Material) => {
+    const disp = Number(m.stock_actual) - Number(m.stock_reservado);
+    if (disp <= 0) return { label: 'AGOTADO', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' };
+    if (disp <= Number(m.punto_reorden)) return { label: 'BAJO MÍNIMO', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' };
+    return { label: 'NORMAL', color: '#09553c', bg: 'rgba(16,185,129,0.12)' };
+};
+
+const movTypeColor = (tipo: string) => {
+    if (tipo?.includes('CONSUMO') || tipo?.includes('Consumo')) return '#ef4444';
+    if (tipo?.includes('RESERVA') || tipo?.includes('proceso')) return '#f59e0b';
+    if (tipo?.includes('LIBERACION') || tipo?.includes('Devolución') || tipo?.includes('sobrante')) return '#8b5cf6';
+    if (tipo?.includes('Ingreso') || tipo?.includes('SALDO') || tipo?.includes('Ajuste')) return '#0a724f';
+    return '#1b1d20';
+};
+
+const fmtDate = (d: string) => new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+const fmtNum = (n: any) => Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 });
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+
 export const Inventory = () => {
-    const [materials, setMaterials] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+    const [materials, setMaterials] = useState<Material[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+    const [dashboardLoading, setDashboardLoading] = useState(true);
+    const [allMovements, setAllMovements] = useState<any[]>([]);
+    const [movementsLoading, setMovementsLoading] = useState(false);
+    const [reservations, setReservations] = useState<any[]>([]);
+    const [reservationsLoading, setReservationsLoading] = useState(false);
+    const [auditData, setAuditData] = useState<any[]>([]);
+    const [auditLoading, setAuditLoading] = useState(false);
+
+    // UI state
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState<'all' | 'low-stock'>('all');
-    const [monthlyMovements, setMonthlyMovements] = useState(0);
+    const [filterEstado, setFilterEstado] = useState('TODOS');
+    const [filterCategoria, setFilterCategoria] = useState('TODAS');
+    const [movSearch, setMovSearch] = useState('');
 
     // Modals
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+    const [materialFormData, setMaterialFormData] = useState<any>(emptyMaterial);
+    const [detailMovements, setDetailMovements] = useState<any[]>([]);
+    const [loadingDetailMov, setLoadingDetailMov] = useState(false);
 
-    const [selectedMaterial, setSelectedMaterial] = useState<any | null>(null);
-    const [movements, setMovements] = useState<Movement[]>([]);
-    const [loadingMovements, setLoadingMovements] = useState(false);
+    const [reconcilingId, setReconcilingId] = useState<number | null>(null);
 
-    const [formData, setFormData] = useState({
-        sku_mp: '',
-        nombre_mp: '',
-        categoria_mp: '',
-        unidad_medida_stock: 'Kg',
-        stock_actual: 0,
-        stock_reservado: 0,
-        devoluciones: 0,
-        punto_reorden: 0,
-        espesor: 0,
-        ancho: 0,
-        largo: 0,
-        densidad: 7.85,
-        peso_unitario: 0,
-        costo_unitario: 0
-    });
+    const token = () => localStorage.getItem('token');
+    const authHeaders = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 
-    const fetchInventory = async () => {
+    // ── Fetchers ────────────────────────────────────────────────────────────
+
+    const fetchMaterials = useCallback(async () => {
         try {
             const data = await materiaPrimaRepository.getAll();
-            setMaterials(data);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchInventoryStats = async () => {
-        try {
-            // Stats currently require API, but we'll try-catch
-            const res = await axios.get(`${API_URL}/inventory/stats`);
-            setMonthlyMovements(res.data.monthlyMovements);
-        } catch (error) {
-            console.error('Stats fetch failed (offline?)', error);
-        }
-    };
-
-    useEffect(() => {
-        fetchInventory();
-        fetchInventoryStats();
+            setMaterials(data.map(material => ({
+                ...material,
+                id: material.id ?? material.id_server ?? 0
+            })) as Material[]);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
     }, []);
 
-    const calculateMaterialWeight = (material: any) => {
-        if (material.categoria_mp === 'Lámina' || material.categoria_mp === 'Placa') {
-            // Area in m2 * thickness in mm * density
-            const areaM2 = (Number(material.ancho) / 1000) * (Number(material.largo) / 1000);
-            return areaM2 * Number(material.espesor) * Number(material.densidad) * Number(material.stock_actual);
-        } else if (material.peso_unitario > 0) {
-            return Number(material.stock_actual) * Number(material.peso_unitario);
-        }
-        return 0;
-    };
-
-    const stats = {
-        totalItems: materials.length,
-        lowStockCount: materials.filter(m => Number(m.stock_actual) <= Number(m.punto_reorden)).length,
-        totalWeight: materials.reduce((acc, m) => acc + calculateMaterialWeight(m), 0),
-        monthlyMovements: monthlyMovements
-    };
-
-    const handleCreateMaterial = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const fetchDashboard = useCallback(async () => {
+        setDashboardLoading(true);
         try {
-            await materiaPrimaRepository.create(formData);
-            setShowCreateModal(false);
-            fetchInventory();
-            alert('Material creado con éxito (Híbrido)');
-        } catch (error) {
-            alert('Error al crear material');
-        }
-    };
+            const res = await axios.get(`${API_URL}/inventory/dashboard-stock`, authHeaders());
+            setDashboardData(res.data);
+        } catch (e) { console.error(e); }
+        finally { setDashboardLoading(false); }
+    }, []);
 
-    const handleUpdateMaterial = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedMaterial) return;
+    const fetchAllMovements = useCallback(async () => {
+        if (allMovements.length > 0) return;
+        setMovementsLoading(true);
         try {
-            await materiaPrimaRepository.update(
-                selectedMaterial.id_local,
-                selectedMaterial.id || selectedMaterial.id_server,
-                formData
-            );
-            setShowEditModal(false);
-            fetchInventory();
-            alert('Material actualizado con éxito');
-        } catch (error) {
-            alert('Error al actualizar material');
-        }
+            const res = await axios.get(`${API_URL}/inventory/all-movements?limit=200`, authHeaders());
+            setAllMovements(res.data.movements || []);
+        } catch (e) { console.error(e); }
+        finally { setMovementsLoading(false); }
+    }, [allMovements.length]);
+
+    const fetchReservations = useCallback(async () => {
+        setReservationsLoading(true);
+        try {
+            const res = await axios.get(`${API_URL}/inventory/reservations`, authHeaders());
+            setReservations(res.data);
+        } catch (e) { console.error(e); }
+        finally { setReservationsLoading(false); }
+    }, []);
+
+    const fetchAudit = useCallback(async () => {
+        setAuditLoading(true);
+        try {
+            const res = await axios.get(`${API_URL}/inventory/audit-completed-ots`, authHeaders());
+            setAuditData(res.data);
+        } catch (e) { console.error(e); }
+        finally { setAuditLoading(false); }
+    }, []);
+
+    useEffect(() => {
+        fetchMaterials();
+        fetchDashboard();
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'historial') fetchAllMovements();
+        if (activeTab === 'reservas') fetchReservations();
+        if (activeTab === 'auditoria') fetchAudit();
+    }, [activeTab]);
+
+    const handleRefresh = () => {
+        setAllMovements([]);
+        fetchMaterials();
+        fetchDashboard();
+        if (activeTab === 'historial') { setAllMovements([]); setTimeout(fetchAllMovements, 100); }
+        if (activeTab === 'reservas') fetchReservations();
+        if (activeTab === 'auditoria') fetchAudit();
     };
 
-    const openDetailModal = async (material: any) => {
-        setSelectedMaterial(material);
+    // ── Material detail ─────────────────────────────────────────────────────
+
+    const openDetail = async (mat: Material) => {
+        setSelectedMaterial(mat);
         setShowDetailModal(true);
-        setLoadingMovements(true);
+        setLoadingDetailMov(true);
         try {
-            // Movements can be fetched from repository if native
-            const matId = material.id || material.id_server;
-            const res = await axios.get(`${API_URL}/inventory/${matId}/movements`);
-            setMovements(res.data);
-        } catch (error) {
-            console.error('Movements fetch failed', error);
-            setMovements([]);
-        } finally {
-            setLoadingMovements(false);
-        }
+            const id = (mat as any).id || (mat as any).id_server;
+            const res = await axios.get(`${API_URL}/inventory/${id}/movements`, authHeaders());
+            setDetailMovements(res.data);
+        } catch { setDetailMovements([]); }
+        finally { setLoadingDetailMov(false); }
     };
 
-    const handleAddStock = async (amount: number, type: string, reference: string, imageFile?: File) => {
-        if (!selectedMaterial) return;
+    const handleReconcile = async (otId: number) => {
+        if (!confirm('¿Confirmar reconciliación? Se consumirán los materiales pendientes de esta OT.')) return;
+        setReconcilingId(otId);
         try {
-            const matId = selectedMaterial.id || selectedMaterial.id_server;
-            const data: any = {
-                materia_prima_id: matId,
-                cantidad: amount,
-                tipo_movimiento: type,
-                referencia_id: reference
-            };
+            await axios.post(`${API_URL}/inventory/reconcile-ot/${otId}`, {}, authHeaders());
+            await fetchAudit();
+            await fetchDashboard();
+        } catch (e: any) {
+            alert(e.response?.data?.error || 'Error al reconciliar');
+        } finally { setReconcilingId(null); }
+    };
 
-            await inventarioRepository.create(data);
+    const openCreateMaterial = () => {
+        setMaterialFormData({ ...emptyMaterial });
+        setShowCreateModal(true);
+    };
 
-            // Si hay imagen y estamos en web, subimos
-            if (imageFile) {
-                // ... logic for image upload ...
+    const openEditMaterial = (material: Material) => {
+        setSelectedMaterial(material);
+        setMaterialFormData({ ...material });
+        setShowEditModal(true);
+    };
+
+    const handleMaterialSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
+        try {
+            if (showEditModal && selectedMaterial) {
+                await materiaPrimaRepository.update('', selectedMaterial.id, materialFormData);
+            } else {
+                await materiaPrimaRepository.create(materialFormData);
             }
-
-            fetchInventory();
-            setShowAddModal(false);
-            alert('Movimiento registrado con éxito');
-        } catch (error) {
-            alert('Error al registrar movimiento');
+            setShowCreateModal(false);
+            setShowEditModal(false);
+            await Promise.all([fetchMaterials(), fetchDashboard()]);
+        } catch (error: any) {
+            alert(error.response?.data?.error || error.message || 'No fue posible guardar el material');
         }
     };
 
-    const handleReverseMovement = async (movId: number) => {
-        if (!window.confirm('¿Estás seguro de que deseas revertir este movimiento? El stock será ajustado automáticamente.')) return;
-        try {
-            await axios.post(`${API_URL}/inventory/movements/${movId}/reverse`);
-            if (selectedMaterial) {
-                const matId = selectedMaterial.id || selectedMaterial.id_server;
-                const res = await axios.get(`${API_URL}/inventory/${matId}/movements`);
-                setMovements(res.data);
-                fetchInventory();
-            }
-        } catch (error) {
-            console.error('Error reversing movement:', error);
-            alert('Error al revertir el movimiento');
-        }
-    };
+    // ── Filtering ───────────────────────────────────────────────────────────
+
+    const categorias = ['TODAS', ...Array.from(new Set(materials.map(m => m.categoria_mp))).sort()];
 
     const filteredMaterials = materials.filter(m => {
-        const matchesSearch = m.nombre_mp.toLowerCase().includes(searchTerm.toLowerCase()) || m.sku_mp.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesTab = activeTab === 'all' || (Number(m.stock_actual) <= Number(m.punto_reorden));
-        return matchesSearch && matchesTab;
+        const disp = Number(m.stock_actual) - Number(m.stock_reservado);
+        const st = statusInfo(m);
+        const matchSearch = !searchTerm || m.nombre_mp.toLowerCase().includes(searchTerm.toLowerCase()) || m.sku_mp.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchEstado = filterEstado === 'TODOS' || st.label === filterEstado;
+        const matchCat = filterCategoria === 'TODAS' || m.categoria_mp === filterCategoria;
+        return matchSearch && matchEstado && matchCat;
     });
 
+    const filteredMovements = allMovements.filter(mv =>
+        !movSearch || mv.materiaPrima?.nombre_mp?.toLowerCase().includes(movSearch.toLowerCase()) ||
+        mv.tipo_movimiento?.toLowerCase().includes(movSearch.toLowerCase()) ||
+        mv.referencia_id?.toLowerCase().includes(movSearch.toLowerCase()) ||
+        mv.ordenTrabajo?.numero_ot?.toLowerCase().includes(movSearch.toLowerCase())
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RENDER
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+        { id: 'dashboard', label: 'Dashboard de Stock', icon: <BarChart2 size={16} /> },
+        { id: 'catalogo', label: 'Inventario', icon: <Package size={16} /> },
+        { id: 'historial', label: 'Historial', icon: <History size={16} /> },
+        { id: 'reservas', label: 'Reservas Activas', icon: <Lock size={16} /> },
+        { id: 'auditoria', label: 'Auditoría', icon: <ShieldCheck size={16} /> },
+    ];
+
     return (
-        <div className="max-w-[1600px] mx-auto space-y-8 animate-in fade-in duration-500">
-            {/* Header section */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div style={{ minHeight: '100vh', background: 'transparent', padding: '24px', color: '#1e293b' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
                 <div>
-                    <h1 className="text-4xl font-black text-gray-900 tracking-tight">Inventario MP</h1>
-                    <div className="flex items-center gap-2 mt-1">
-                        <span className="flex items-center gap-1.5 text-sm font-bold text-brand-600 bg-brand-50 px-2.5 py-1 rounded-full">
-                            <div className="w-1.5 h-1.5 bg-brand-600 rounded-full animate-pulse"></div>
-                            Sistema de Control Real-Time
-                        </span>
-                        <p className="text-gray-500 text-sm font-medium">Gestiona materias primas y consumibles.</p>
-                    </div>
+                    <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#1e293b' }}>
+                        Materia Prima
+                    </h1>
+                    <p style={{ color: '#475569', fontSize: 14, margin: 0 }}>Control de inventario, reservas y trazabilidad completa</p>
                 </div>
-                <div className="flex gap-3">
+                <div style={{ display: 'flex', gap: 10 }}>
                     <button
-                        onClick={() => {
-                            setFormData({
-                                sku_mp: '',
-                                nombre_mp: '',
-                                categoria_mp: '',
-                                unidad_medida_stock: 'Kg',
-                                stock_actual: 0,
-                                stock_reservado: 0,
-                                devoluciones: 0,
-                                punto_reorden: 0,
-                                espesor: 0,
-                                ancho: 0,
-                                largo: 0,
-                                densidad: 7.85,
-                                peso_unitario: 0,
-                                costo_unitario: 0
-                            });
-                            setShowCreateModal(true);
-                        }}
-                        className="bg-brand-600 text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:bg-brand-700 shadow-lg shadow-brand-100 active:scale-95 transition-all font-bold"
+                        onClick={handleRefresh}
+                        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
                     >
-                        <Plus className="w-5 h-5" /> Nuevo Material
+                        <RefreshCw size={15} /> Actualizar
+                    </button>
+                    <button
+                        onClick={openCreateMaterial}
+                        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: '#2563eb', border: 'none', borderRadius: 10, color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }}
+                    >
+                        <Plus size={15} /> Nueva MP
                     </button>
                 </div>
             </div>
 
-            {/* Stats Section */}
-            {!loading && <InventoryStats {...stats} />}
-
-            {/* Content Section */}
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-                {/* Tabs & Toolbar */}
-                <div className="px-8 py-6 border-b border-gray-50 flex flex-col lg:flex-row justify-between items-center gap-6">
-                    <div className="flex bg-gray-50 p-1 rounded-2xl self-start">
-                        <button
-                            onClick={() => setActiveTab('all')}
-                            className={clsx(
-                                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
-                                activeTab === 'all' ? "bg-white text-brand-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                            )}
-                        >
-                            <Package className="w-4 h-4" /> Todos los Materiales
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('low-stock')}
-                            className={clsx(
-                                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
-                                activeTab === 'low-stock' ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                            )}
-                        >
-                            <ShoppingCart className="w-4 h-4" /> Por Comprar
-                            {stats.lowStockCount > 0 && (
-                                <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-md text-[10px]">{stats.lowStockCount}</span>
-                            )}
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-4 w-full lg:w-auto">
-                        <div className="relative flex-1 lg:w-80">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                                type="text"
-                                placeholder="Filtrar por nombre o SKU..."
-                                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-gray-50 border-none focus:ring-2 focus:ring-brand-500 transition-all font-medium text-sm"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        <button className="p-3 bg-gray-50 text-gray-500 rounded-2xl hover:bg-gray-100 transition shadow-sm">
-                            <Filter className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Table - Desktop View */}
-                <div className="overflow-x-auto hidden lg:block">
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="bg-gray-50/50">
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Material / SKU</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Categoría</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Stock Actual</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">En Proceso</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Peso Est.</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Estado</th>
-                                <th className="px-8 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            {loading ? (
-                                Array(5).fill(0).map((_, i) => (
-                                    <tr key={i} className="animate-pulse">
-                                        <td colSpan={7} className="px-8 py-6"><div className="h-6 bg-gray-100 rounded-lg w-full"></div></td>
-                                    </tr>
-                                ))
-                            ) : filteredMaterials.map((material) => {
-                                const isLow = Number(material.stock_actual) <= Number(material.punto_reorden);
-                                const weight = calculateMaterialWeight(material);
-
-                                return (
-                                    <tr key={material.id} className="group hover:bg-blue-50/30 transition-all duration-300">
-                                        <td className="px-8 py-5">
-                                            <div>
-                                                <p className="font-black text-gray-900 group-hover:text-brand-600 transition-colors uppercase tracking-tight">{material.nombre_mp}</p>
-                                                <p className="text-xs font-mono text-gray-400 mt-0.5">{material.sku_mp}</p>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-5">
-                                            <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-black uppercase">
-                                                {material.categoria_mp}
-                                            </span>
-                                        </td>
-                                        <td className="px-8 py-5 text-center">
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-lg font-black text-gray-900">{formatNumber(material.stock_actual, 'produccion')}</span>
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{material.unidad_medida_stock}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-5 text-center">
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-lg font-black text-orange-600">{formatNumber(material.stock_reservado || 0, 'produccion')}</span>
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{material.unidad_medida_stock}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-5 text-center">
-                                            {weight > 0 ? (
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-sm font-bold text-blue-600">{formatUnit(weight, 'peso')}</span>
-                                                </div>
-                                            ) : (
-                                                <span className="text-gray-300">--</span>
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-5">
-                                            {isLow ? (
-                                                <div className="flex items-center gap-1.5 text-red-600 bg-red-50 px-3 py-1.5 rounded-xl w-fit">
-                                                    <AlertCircle className="w-3.5 h-3.5" />
-                                                    <span className="text-[10px] font-black uppercase">Crítico</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-1.5 text-green-600 bg-green-50 px-3 py-1.5 rounded-xl w-fit">
-                                                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                                                    <span className="text-[10px] font-black uppercase">En Stock</span>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-5">
-                                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    onClick={() => { setSelectedMaterial(material); setShowAddModal(true); }}
-                                                    className="p-2.5 bg-brand-50 text-brand-600 rounded-xl hover:bg-brand-600 hover:text-white transition shadow-sm"
-                                                    title="Ingresar Stock"
-                                                >
-                                                    <ArrowUpCircle className="w-5 h-5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedMaterial(material);
-                                                        setFormData({
-                                                            sku_mp: material.sku_mp,
-                                                            nombre_mp: material.nombre_mp,
-                                                            categoria_mp: material.categoria_mp,
-                                                            unidad_medida_stock: material.unidad_medida_stock,
-                                                            stock_actual: material.stock_actual,
-                                                            stock_reservado: material.stock_reservado,
-                                                            // @ts-ignore
-                                                            devoluciones: material.devoluciones || 0,
-                                                            punto_reorden: material.punto_reorden,
-                                                            espesor: material.espesor,
-                                                            ancho: material.ancho,
-                                                            largo: material.largo,
-                                                            densidad: material.densidad,
-                                                            peso_unitario: material.peso_unitario,
-                                                            costo_unitario: material.costo_unitario || 0
-                                                        });
-                                                        setShowEditModal(true);
-                                                    }}
-                                                    className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition shadow-sm"
-                                                    title="Editar Especificaciones"
-                                                >
-                                                    <Edit3 className="w-5 h-5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => openDetailModal(material)}
-                                                    className="p-2.5 bg-purple-50 text-purple-600 rounded-xl hover:bg-purple-600 hover:text-white transition shadow-sm"
-                                                    title="Ver Historial"
-                                                >
-                                                    <Eye className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Cards - Mobile View */}
-                <div className="lg:hidden p-4 space-y-4">
-                    {loading ? (
-                        Array(5).fill(0).map((_, i) => (
-                            <div key={i} className="bg-white border border-gray-100 rounded-2xl p-4 animate-pulse h-32"></div>
-                        ))
-                    ) : filteredMaterials.map((material) => {
-                        const isLow = Number(material.stock_actual) <= Number(material.punto_reorden);
-                        const weight = calculateMaterialWeight(material);
-                        return (
-                            <div key={material.id} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
-                                <div className="flex justify-between items-start">
-                                    <div className="pr-2">
-                                        <p className="font-black text-gray-900 text-base uppercase tracking-tight leading-tight">{material.nombre_mp}</p>
-                                        <p className="text-xs font-mono text-gray-400 mt-1">{material.sku_mp}</p>
-                                    </div>
-                                    <div className="shrink-0">
-                                        {isLow ? (
-                                            <div className="flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-lg">
-                                                <AlertCircle className="w-3 h-3" />
-                                                <span className="text-[9px] font-black uppercase">Crítico</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-lg">
-                                                <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                                                <span className="text-[9px] font-black uppercase">En Stock</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap gap-x-6 gap-y-2 mt-1">
-                                    <div>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase">Categoría</p>
-                                        <p className="text-xs font-bold text-gray-700">{material.categoria_mp}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase">Stock Actual</p>
-                                        <p className="text-xs font-black text-brand-600">{formatNumber(material.stock_actual, 'produccion')} <span className="text-[10px] text-gray-400">{material.unidad_medida_stock}</span></p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase">En Proceso</p>
-                                        <p className="text-xs font-black text-orange-600">{formatNumber(material.stock_reservado || 0, 'produccion')} <span className="text-[10px] text-gray-400">{material.unidad_medida_stock}</span></p>
-                                    </div>
-                                </div>
-                                <div className="flex justify-end gap-2 pt-3 border-t border-gray-50 mt-1">
-                                    <button
-                                        onClick={() => { setSelectedMaterial(material); setShowAddModal(true); }}
-                                        className="p-2 bg-brand-50 text-brand-600 rounded-lg active:bg-brand-600 active:text-white transition"
-                                    >
-                                        <ArrowUpCircle className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setSelectedMaterial(material);
-                                            setFormData({
-                                                sku_mp: material.sku_mp,
-                                                nombre_mp: material.nombre_mp,
-                                                categoria_mp: material.categoria_mp,
-                                                unidad_medida_stock: material.unidad_medida_stock,
-                                                stock_actual: material.stock_actual,
-                                                stock_reservado: material.stock_reservado,
-                                                // @ts-ignore
-                                                devoluciones: material.devoluciones || 0,
-                                                punto_reorden: material.punto_reorden,
-                                                espesor: material.espesor,
-                                                ancho: material.ancho,
-                                                largo: material.largo,
-                                                densidad: material.densidad,
-                                                peso_unitario: material.peso_unitario,
-                                                costo_unitario: material.costo_unitario || 0
-                                            });
-                                            setShowEditModal(true);
-                                        }}
-                                        className="p-2 bg-blue-50 text-blue-600 rounded-lg active:bg-blue-600 active:text-white transition"
-                                    >
-                                        <Edit3 className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => openDetailModal(material)}
-                                        className="p-2 bg-purple-50 text-purple-600 rounded-lg active:bg-purple-600 active:text-white transition"
-                                    >
-                                        <Eye className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                    {filteredMaterials.length === 0 && !loading && (
-                        <div className="py-12 flex flex-col items-center justify-center text-gray-400">
-                            <Package className="w-10 h-10 opacity-20 mb-2" />
-                            <p className="text-sm font-bold">No se encontraron materiales</p>
-                        </div>
-                    )}
-                </div>
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(15,23,42,0.06)', borderRadius: 14, padding: 5, flexWrap: 'wrap' }}>
+                {tabs.map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px',
+                            borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                            transition: 'all 0.2s ease',
+                            background: activeTab === tab.id ? '#2563eb' : 'transparent',
+                            color: activeTab === tab.id ? 'white' : '#2d3035',
+                            boxShadow: activeTab === tab.id ? '0 4px 12px rgba(37,99,235,0.2)' : 'none'
+                        }}
+                    >
+                        {tab.icon} {tab.label}
+                    </button>
+                ))}
             </div>
 
-            {/* Modals */}
-            {showCreateModal && (
-                <MaterialForm
-                    title="Registrar Nuevo Material"
-                    data={formData}
-                    setData={setFormData}
-                    onClose={() => setShowCreateModal(false)}
-                    onSubmit={handleCreateMaterial}
-                />
+            {/* ── DASHBOARD TAB ─────────────────────────────────────────────── */}
+            {activeTab === 'dashboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    {/* KPI Cards */}
+                    <InventoryStats
+                        stockTotal={dashboardData?.kpis.stockTotal ?? 0}
+                        stockDisponible={dashboardData?.kpis.stockDisponible ?? 0}
+                        stockReservado={dashboardData?.kpis.stockReservado ?? 0}
+                        totalReferencias={dashboardData?.kpis.totalReferencias ?? 0}
+                        bajoMinimo={dashboardData?.kpis.bajoMinimo ?? 0}
+                        agotadas={dashboardData?.kpis.agotadas ?? 0}
+                        loading={dashboardLoading}
+                    />
+
+                    {/* Consistency Widget */}
+                    <InventoryConsistencyWidget onCleanReservations={handleRefresh} />
+
+                    {/* Chart + Recent Movements */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
+                        {/* Chart */}
+                        <div style={{ background: 'rgba(250, 250, 250, 0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 24px', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+                                <h2 style={{ color: '#1e293b', fontWeight: 700, fontSize: 16, margin: 0 }}>Stock por Referencia</h2>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <input
+                                        placeholder="Buscar referencia…"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                        style={{ padding: '7px 12px', borderRadius: 9, border: '1px solid #3b4149', background: '#c5d3e0', color: '#1e293b', fontSize: 13, width: 170 }}
+                                    />
+                                    <select
+                                        value={filterEstado}
+                                        onChange={e => setFilterEstado(e.target.value)}
+                                        style={{ padding: '7px 10px', borderRadius: 9, border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e293b', fontSize: 13 }}
+                                    >
+                                        <option value="TODOS">Todos</option>
+                                        <option value="NORMAL">Normal</option>
+                                        <option value="BAJO MÍNIMO">Bajo Mínimo</option>
+                                        <option value="AGOTADO">Agotado</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <StockStackedBarChart
+                                data={dashboardData?.chartData ?? []}
+                                loading={dashboardLoading}
+                                searchTerm={searchTerm}
+                                filterEstado={filterEstado === 'TODOS' ? undefined : filterEstado}
+                            />
+                        </div>
+
+                        {/* Recent Movements */}
+                        <div style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 20px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                            <h2 style={{ color: '#1e293b', fontWeight: 700, fontSize: 15, margin: '0 0 16px' }}>Últimos Movimientos</h2>
+                            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {(dashboardData?.ultimosMovimientos ?? []).map((mv: any) => (
+                                    <div key={mv.id} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 13px', borderLeft: `3px solid ${movTypeColor(mv.tipo_movimiento)}` }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                                            <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mv.materiaPrima?.nombre_mp}</span>
+                                            <span style={{ color: Number(mv.cantidad) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                                                {Number(mv.cantidad) >= 0 ? '+' : ''}{fmtNum(mv.cantidad)}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, marginTop: 4 }}>
+                                            <span style={{ color: movTypeColor(mv.tipo_movimiento), fontSize: 11, fontWeight: 600 }}>{mv.tipo_movimiento}</span>
+                                            <span style={{ color: '#475569', fontSize: 11 }}>{fmtDate(mv.fecha_hora)}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {!dashboardLoading && !dashboardData?.ultimosMovimientos?.length && (
+                                    <p style={{ color: '#475569', fontSize: 13, textAlign: 'center', paddingTop: 20 }}>Sin movimientos recientes</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
 
-            {showEditModal && (
-                <MaterialForm
-                    title="Editar Material"
-                    data={formData}
-                    setData={setFormData}
-                    onClose={() => setShowEditModal(false)}
-                    onSubmit={handleUpdateMaterial}
-                    isEdit={true}
-                />
+            {/* ── CATÁLOGO TAB ──────────────────────────────────────────────── */}
+            {activeTab === 'catalogo' && (
+                <div>
+                    {/* Filters */}
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                            <Search size={15} color="#475569" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+                            <input
+                                placeholder="Buscar por nombre o SKU…"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e293b', fontSize: 14, boxSizing: 'border-box' }}
+                            />
+                        </div>
+                        <select value={filterCategoria} onChange={e => setFilterCategoria(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e293b', fontSize: 14 }}>
+                            {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <select value={filterEstado} onChange={e => setFilterEstado(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e293b', fontSize: 14 }}>
+                            <option value="TODOS">Todos los estados</option>
+                            <option value="NORMAL">Normal</option>
+                            <option value="BAJO MÍNIMO">Bajo Mínimo</option>
+                            <option value="AGOTADO">Agotado</option>
+                        </select>
+                    </div>
+
+                    {/* Table */}
+                    <div style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 16, border: '1px solid rgba(15,23,42,0.07)', overflow: 'hidden', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                                        {['SKU / Código', 'Material', 'Categoría', 'Stock Total', 'Reservado', 'Disponible', 'Mín.', 'Estado', 'Acciones'].map(h => (
+                                            <th key={h} style={{ padding: '13px 14px', textAlign: 'left', color: '#64748b', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {loading ? (
+                                        Array.from({ length: 8 }).map((_, i) => (
+                                            <tr key={i}><td colSpan={9} style={{ padding: '12px 14px' }}><div style={{ height: 28, background: 'rgba(255,255,255,0.04)', borderRadius: 6, animation: 'pulse 1.5s infinite' }} /></td></tr>
+                                        ))
+                                    ) : filteredMaterials.length === 0 ? (
+                                        <tr><td colSpan={9} style={{ padding: '48px 14px', textAlign: 'center', color: '#475569' }}>Sin materiales que coincidan con la búsqueda</td></tr>
+                                    ) : filteredMaterials.map(mat => {
+                                        const disp = Number(mat.stock_actual) - Number(mat.stock_reservado);
+                                        const st = statusInfo(mat);
+                                        return (
+                                            <tr key={mat.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s' }}
+                                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.05)')}
+                                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                            >
+                                                <td style={{ padding: '12px 14px', color: '#6366f1', fontSize: 13, fontWeight: 700, fontFamily: 'monospace' }}>{mat.sku_mp}</td>
+                                                <td style={{ padding: '12px 14px', color: '#222427', fontSize: 14, fontWeight: 600 }}>{mat.nombre_mp}</td>
+                                                <td style={{ padding: '12px 14px' }}>
+                                                    <span style={{ padding: '3px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.12)', color: '#818cf8', fontSize: 12, fontWeight: 600 }}>{mat.categoria_mp}</span>
+                                                </td>
+                                                <td style={{ padding: '12px 14px', color: '#2e3033', fontSize: 14, fontWeight: 600 }}>{fmtNum(mat.stock_actual)} <span style={{ color: '#475569', fontSize: 12 }}>{mat.unidad_medida_stock}</span></td>
+                                                <td style={{ padding: '12px 14px', color: '#35332f', fontSize: 14, fontWeight: 600 }}>{fmtNum(mat.stock_reservado)}</td>
+                                                <td style={{ padding: '12px 14px', color: disp <= 0 ? '#ef4444' : '#10b981', fontSize: 14, fontWeight: 700 }}>{fmtNum(disp)}</td>
+                                                <td style={{ padding: '12px 14px', color: '#64748b', fontSize: 13 }}>{fmtNum(mat.punto_reorden)}</td>
+                                                <td style={{ padding: '12px 14px' }}>
+                                                    <span style={{ padding: '3px 10px', borderRadius: 8, background: st.bg, color: st.color, fontSize: 12, fontWeight: 700 }}>{st.label}</span>
+                                                </td>
+                                                <td style={{ padding: '12px 14px' }}>
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <button onClick={() => openDetail(mat)} title="Ver detalle" style={{ padding: '6px', borderRadius: 7, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', cursor: 'pointer', color: '#818cf8', display: 'flex' }}>
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button onClick={() => { setSelectedMaterial(mat); setShowAddModal(true); }} title="Agregar stock" style={{ padding: '6px', borderRadius: 7, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.2)', cursor: 'pointer', color: '#10b981', display: 'flex' }}>
+                                                            <ArrowUpCircle size={14} />
+                                                        </button>
+                                                        <button onClick={() => openEditMaterial(mat)} title="Editar" style={{ padding: '6px', borderRadius: 7, background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.2)', cursor: 'pointer', color: '#f59e0b', display: 'flex' }}>
+                                                            <Edit3 size={14} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                            {filteredMaterials.length} de {materials.length} referencias
+                        </div>
+                    </div>
+                </div>
             )}
 
+            {/* ── HISTORIAL TAB ──────────────────────────────────────────────── */}
+            {activeTab === 'historial' && (
+                <div>
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                            <Search size={15} color="#475569" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+                            <input
+                                placeholder="Buscar por material, tipo, OT…"
+                                value={movSearch}
+                                onChange={e => setMovSearch(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 10, border: '1px solid rgba(99,102,241,0.2)', background: 'rgba(99,102,241,0.07)', color: '#e2e8f0', fontSize: 14, boxSizing: 'border-box' }}
+                            />
+                        </div>
+                        <button onClick={() => { setAllMovements([]); fetchAllMovements(); }} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, color: '#818cf8', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                            <RefreshCw size={14} /> Recargar
+                        </button>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                                        {['Fecha / Hora', 'Material', 'Tipo Movimiento', 'Cantidad', 'Stock Ant.', 'Stock Post.', 'OT / Referencia', 'Usuario', 'Observación'].map(h => (
+                                            <th key={h} style={{ padding: '12px 14px', textAlign: 'left', color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {movementsLoading ? (
+                                        Array.from({ length: 10 }).map((_, i) => (
+                                            <tr key={i}><td colSpan={9} style={{ padding: '10px 14px' }}><div style={{ height: 22, background: 'rgba(255,255,255,0.04)', borderRadius: 5, animation: 'pulse 1.5s infinite' }} /></td></tr>
+                                        ))
+                                    ) : filteredMovements.length === 0 ? (
+                                        <tr><td colSpan={9} style={{ padding: '40px 14px', textAlign: 'center', color: '#475569' }}>Sin movimientos</td></tr>
+                                    ) : filteredMovements.map(mv => (
+                                        <tr key={mv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.12s' }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.04)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(mv.fecha_hora)}</td>
+                                            <td style={{ padding: '11px 14px', color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{mv.materiaPrima?.nombre_mp}</td>
+                                            <td style={{ padding: '11px 14px' }}>
+                                                <span style={{ padding: '3px 9px', borderRadius: 7, background: `${movTypeColor(mv.tipo_movimiento)}18`, color: movTypeColor(mv.tipo_movimiento), fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{mv.tipo_movimiento}</span>
+                                            </td>
+                                            <td style={{ padding: '11px 14px', color: Number(mv.cantidad) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: 14 }}>
+                                                {Number(mv.cantidad) >= 0 ? '+' : ''}{fmtNum(mv.cantidad)}
+                                            </td>
+                                            <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{mv.stock_anterior != null ? fmtNum(mv.stock_anterior) : '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#94a3b8', fontSize: 13 }}>{mv.stock_posterior != null ? fmtNum(mv.stock_posterior) : '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#6366f1', fontSize: 13, fontFamily: 'monospace' }}>{mv.ordenTrabajo?.numero_ot || mv.referencia_id || '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 12 }}>{mv.usuario_nombre || '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#475569', fontSize: 12, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mv.observacion || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                            {filteredMovements.length} movimiento{filteredMovements.length !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── RESERVAS TAB ───────────────────────────────────────────────── */}
+            {activeTab === 'reservas' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
+                        <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
+                            Material actualmente retenido en órdenes de producción activas
+                        </p>
+                        <button onClick={fetchReservations} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, color: '#818cf8', cursor: 'pointer', fontSize: 13 }}>
+                            <RefreshCw size={14} /> Actualizar
+                        </button>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                                        {['OT', 'Estado OT', 'Cliente', 'Producto', 'Material Reservado', 'Cantidad', 'Unidad', 'Fecha Reserva'].map(h => (
+                                            <th key={h} style={{ padding: '12px 14px', textAlign: 'left', color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {reservationsLoading ? (
+                                        Array.from({ length: 6 }).map((_, i) => <tr key={i}><td colSpan={8}><div style={{ height: 22, background: 'rgba(255,255,255,0.04)', margin: '8px 14px', borderRadius: 5, animation: 'pulse 1.5s infinite' }} /></td></tr>)
+                                    ) : reservations.length === 0 ? (
+                                        <tr><td colSpan={8} style={{ padding: '48px 14px', textAlign: 'center', color: '#475569' }}>
+                                            <Lock size={36} color="#334155" style={{ display: 'block', margin: '0 auto 10px' }} />
+                                            Sin reservas activas — todo el material está disponible
+                                        </td></tr>
+                                    ) : reservations.map(r => (
+                                        <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.12s' }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(245,158,11,0.04)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            <td style={{ padding: '11px 14px', color: '#6366f1', fontWeight: 700, fontFamily: 'monospace', fontSize: 13 }}>{r.ordenTrabajo?.numero_ot || '—'}</td>
+                                            <td style={{ padding: '11px 14px' }}>
+                                                <span style={{ padding: '3px 9px', borderRadius: 7, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: 12, fontWeight: 700 }}>{r.ordenTrabajo?.estado_ot}</span>
+                                            </td>
+                                            <td style={{ padding: '11px 14px', color: '#94a3b8', fontSize: 13 }}>{r.ordenTrabajo?.cliente || '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#cbd5e1', fontSize: 13 }}>{r.ordenTrabajo?.producto?.nombre_producto || '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#e2e8f0', fontWeight: 600, fontSize: 13 }}>{r.materiaPrima?.nombre_mp}</td>
+                                            <td style={{ padding: '11px 14px', color: '#f59e0b', fontWeight: 700, fontSize: 14 }}>{fmtNum(r.cantidad)}</td>
+                                            <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{r.materiaPrima?.unidad_medida_stock}</td>
+                                            <td style={{ padding: '11px 14px', color: '#475569', fontSize: 12 }}>{fmtDate(r.fecha_hora)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {reservations.length > 0 && (
+                            <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                                {reservations.length} reserva{reservations.length !== 1 ? 's' : ''} activa{reservations.length !== 1 ? 's' : ''}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── AUDITORÍA TAB ──────────────────────────────────────────────── */}
+            {activeTab === 'auditoria' && (
+                <div>
+                    <div style={{ background: 'rgba(245,158,11,0.07)', borderRadius: 12, border: '1px solid rgba(245,158,11,0.2)', padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                        <AlertCircle size={20} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+                        <div>
+                            <p style={{ color: '#fcd34d', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 4 }}>Auditoría de Inconsistencias</p>
+                            <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+                                OTs completadas que no registraron consumo de materiales. Puedes reconciliar individualmente cada orden para corregir el inventario histórico.
+                                <strong style={{ color: '#fcd34d' }}> Esta acción es irreversible — verifique antes de proceder.</strong>
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                                        {['OT', 'Estado', 'Tipo', 'Cliente', 'Fecha Cierre', 'Materiales Consumidos', 'Materiales Requeridos', 'Acción'].map(h => (
+                                            <th key={h} style={{ padding: '12px 14px', textAlign: 'left', color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {auditLoading ? (
+                                        Array.from({ length: 6 }).map((_, i) => <tr key={i}><td colSpan={8}><div style={{ height: 22, background: 'rgba(255,255,255,0.04)', margin: '8px 14px', borderRadius: 5, animation: 'pulse 1.5s infinite' }} /></td></tr>)
+                                    ) : auditData.length === 0 ? (
+                                        <tr><td colSpan={8} style={{ padding: '48px 14px', textAlign: 'center', color: '#475569' }}>
+                                            <CheckSquare size={36} color="#334155" style={{ display: 'block', margin: '0 auto 10px' }} />
+                                            Sin OTs inconsistentes — el inventario histórico está correcto
+                                        </td></tr>
+                                    ) : auditData.map((ot: any) => (
+                                        <tr key={ot.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <td style={{ padding: '11px 14px', color: '#6366f1', fontWeight: 700, fontFamily: 'monospace', fontSize: 13 }}>{ot.numero_ot}</td>
+                                            <td style={{ padding: '11px 14px' }}>
+                                                <span style={{ padding: '3px 9px', borderRadius: 7, background: 'rgba(16,185,129,0.1)', color: '#10b981', fontSize: 12, fontWeight: 700 }}>{ot.estado_ot}</span>
+                                            </td>
+                                            <td style={{ padding: '11px 14px', color: '#94a3b8', fontSize: 13 }}>{ot.tipo_orden}</td>
+                                            <td style={{ padding: '11px 14px', color: '#cbd5e1', fontSize: 13 }}>{ot.cliente || '—'}</td>
+                                            <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 12 }}>{ot.fecha_fin_real ? fmtDate(ot.fecha_fin_real) : '—'}</td>
+                                            <td style={{ padding: '11px 14px', textAlign: 'center' }}>
+                                                {ot.materiales_consumidos
+                                                    ? <span style={{ color: '#10b981', fontWeight: 700 }}>✓ Sí</span>
+                                                    : <span style={{ color: '#ef4444', fontWeight: 700 }}>✗ No</span>
+                                                }
+                                            </td>
+                                            <td style={{ padding: '11px 14px', color: '#94a3b8', fontSize: 12 }}>
+                                                {ot.materialesRequeridos?.length ?? '—'} material(es)
+                                            </td>
+                                            <td style={{ padding: '11px 14px' }}>
+                                                {!ot.materiales_consumidos ? (
+                                                    <button
+                                                        onClick={() => handleReconcile(ot.id)}
+                                                        disabled={reconcilingId === ot.id}
+                                                        style={{
+                                                            padding: '7px 14px', borderRadius: 8, border: 'none', cursor: reconcilingId === ot.id ? 'not-allowed' : 'pointer',
+                                                            background: reconcilingId === ot.id ? 'rgba(99,102,241,0.2)' : 'linear-gradient(135deg,#6366f1,#4f46e5)',
+                                                            color: 'white', fontSize: 12, fontWeight: 700, opacity: reconcilingId === ot.id ? 0.7 : 1,
+                                                            display: 'flex', alignItems: 'center', gap: 6
+                                                        }}
+                                                    >
+                                                        <RotateCcw size={12} />
+                                                        {reconcilingId === ot.id ? 'Reconciliando…' : 'Reconciliar'}
+                                                    </button>
+                                                ) : (
+                                                    <span style={{ color: '#334155', fontSize: 12 }}>—</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── MODALS ─────────────────────────────────────────────────────── */}
+
+            {/* Detail Modal */}
+            {showDetailModal && selectedMaterial && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                    <div style={{ background: '#ffffff', borderRadius: 20, border: '1px solid #e2e8f0', width: '100%', maxWidth: 720, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(15,23,42,0.18)' }}>
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <h3 style={{ color: '#1e293b', fontWeight: 800, fontSize: 18, margin: 0 }}>{selectedMaterial.nombre_mp}</h3>
+                                <p style={{ color: '#6366f1', fontSize: 13, margin: '4px 0 0', fontFamily: 'monospace' }}>{selectedMaterial.sku_mp} · {selectedMaterial.categoria_mp}</p>
+                            </div>
+                            <button onClick={() => setShowDetailModal(false)} title="Cerrar detalle" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: '7px', cursor: 'pointer', color: '#64748b' }}>
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Stock summary */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                            {[
+                                { label: 'Stock Total', value: fmtNum(selectedMaterial.stock_actual), unit: selectedMaterial.unidad_medida_stock, color: '#6366f1' },
+                                { label: 'Reservado', value: fmtNum(selectedMaterial.stock_reservado), unit: selectedMaterial.unidad_medida_stock, color: '#f59e0b' },
+                                { label: 'Disponible', value: fmtNum(Number(selectedMaterial.stock_actual) - Number(selectedMaterial.stock_reservado)), unit: selectedMaterial.unidad_medida_stock, color: '#10b981' },
+                            ].map(s => (
+                                <div key={s.label} style={{ background: `${s.color}10`, borderRadius: 12, padding: '12px 14px', border: `1px solid ${s.color}25` }}>
+                                    <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 4px', fontWeight: 600, textTransform: 'uppercase' }}>{s.label}</p>
+                                    <p style={{ color: s.color, fontSize: 22, fontWeight: 800, margin: 0 }}>{s.value} <span style={{ fontSize: 13, fontWeight: 500 }}>{s.unit}</span></p>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Movement history */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+                            <h4 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px' }}>Historial de Movimientos</h4>
+                            {loadingDetailMov ? (
+                                <div style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>Cargando movimientos…</div>
+                            ) : detailMovements.length === 0 ? (
+                                <p style={{ color: '#475569', textAlign: 'center', padding: 24 }}>Sin movimientos registrados</p>
+                            ) : detailMovements.map(mv => (
+                                <div key={mv.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: movTypeColor(mv.tipo_movimiento), flexShrink: 0 }} />
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ color: movTypeColor(mv.tipo_movimiento), fontSize: 13, fontWeight: 700 }}>{mv.tipo_movimiento}</span>
+                                            <span style={{ color: Number(mv.cantidad) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: 14 }}>
+                                                {Number(mv.cantidad) >= 0 ? '+' : ''}{fmtNum(mv.cantidad)}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                                            <span style={{ color: '#475569', fontSize: 12 }}>{mv.referencia_id || mv.observacion || '—'}</span>
+                                            <span style={{ color: '#334155', fontSize: 12 }}>{fmtDate(mv.fecha_hora)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Stock Modal */}
             {showAddModal && selectedMaterial && (
                 <AddStockModal
                     material={selectedMaterial}
                     onClose={() => setShowAddModal(false)}
-                    onSuccess={fetchInventory}
+                    onSuccess={() => {
+                        setShowAddModal(false);
+                        fetchMaterials();
+                        fetchDashboard();
+                    }}
                 />
             )}
 
-            {showDetailModal && selectedMaterial && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-                        {/* Detail Header */}
-                        <div className="p-8 border-b border-gray-100 flex justify-between items-start bg-gray-50/50">
-                            <div>
-                                <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest bg-brand-50 px-2 py-1 rounded-md mb-2 inline-block">Ficha Técnica</span>
-                                <h3 className="text-3xl font-black text-gray-900">{selectedMaterial.nombre_mp}</h3>
-                                <p className="text-sm text-gray-400 font-mono mt-1 lowercase tracking-tight">{selectedMaterial.sku_mp} • {selectedMaterial.categoria_mp}</p>
-                            </div>
-                            <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-white rounded-full transition shadow-sm border border-gray-100">
-                                <X className="w-5 h-5 text-gray-400" />
-                            </button>
-                        </div>
-
-                        {/* Scrolling Content */}
-                        <div className="overflow-y-auto p-8 flex-1 custom-scrollbar">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                                <div className="bg-white border border-gray-100 p-5 rounded-3xl shadow-sm">
-                                    <p className="text-xs font-black text-gray-400 uppercase mb-3">Stock Disponible</p>
-                                    <div className="flex items-baseline gap-1">
-                                        <p className="text-4xl font-black text-brand-600">{formatNumber(selectedMaterial.stock_actual, 'produccion')}</p>
-                                        <p className="text-sm font-bold text-gray-400">{selectedMaterial.unidad_medida_stock}</p>
-                                    </div>
-                                    <div className="mt-4 flex items-center gap-2">
-                                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-brand-500 rounded-full"
-                                                style={{ width: `${Math.min((Number(selectedMaterial.stock_actual) / (Number(selectedMaterial.punto_reorden) || 1)) * 50, 100)}%` }}
-                                            ></div>
-                                        </div>
-                                        <span className="text-[10px] font-bold text-gray-400">Punto de reorden: {selectedMaterial.punto_reorden}</span>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white border border-gray-100 p-5 rounded-3xl shadow-sm">
-                                    <p className="text-xs font-black text-gray-400 uppercase mb-3 text-center">Peso por Unidad</p>
-                                    <div className="flex flex-col items-center">
-                                        <div className="p-3 bg-blue-50 rounded-2xl mb-2">
-                                            <ArrowDownCircle className="w-6 h-6 text-blue-600" />
-                                        </div>
-                                        <p className="text-2xl font-black text-gray-900">
-                                            {formatUnit(calculateMaterialWeight(selectedMaterial) / (Number(selectedMaterial.stock_actual) || 1), 'peso')}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white border border-gray-100 p-5 rounded-3xl shadow-sm">
-                                    <p className="text-xs font-black text-gray-400 uppercase mb-3">Especificaciones</p>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-xs text-gray-500">Espesor:</span>
-                                            <span className="text-xs font-bold font-mono">{selectedMaterial.espesor} mm</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-xs text-gray-500">Medidas:</span>
-                                            <span className="text-xs font-bold font-mono">{selectedMaterial.ancho} x {selectedMaterial.largo} mm</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-xs text-gray-500">Densidad:</span>
-                                            <span className="text-xs font-bold font-mono">{selectedMaterial.densidad} g/cm³</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Movement History */}
-                            <div>
-                                <div className="flex items-center justify-between mb-6">
-                                    <h4 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                                        <History className="w-6 h-6 text-brand-600" /> Historial de Movimientos
-                                    </h4>
-                                    <button className="flex items-center gap-2 text-xs font-bold text-brand-600 hover:text-brand-700 transition">
-                                        <Download className="w-4 h-4" /> Exportar Registro
-                                    </button>
-                                </div>
-
-                                {loadingMovements ? (
-                                    <div className="flex flex-col items-center py-10">
-                                        <Loader2 className="w-8 h-8 animate-spin text-brand-200" />
-                                        <p className="text-sm font-medium text-gray-400 mt-2">Sincronizando registros...</p>
-                                    </div>
-                                ) : movements.length > 0 ? (
-                                    <div className="space-y-4">
-                                        {movements.map((mov) => (
-                                            <div key={mov.id} className="group bg-white border border-gray-50 rounded-[2rem] p-5 hover:border-brand-100 hover:shadow-xl hover:shadow-brand-50/20 transition-all duration-300">
-                                                <div className="flex items-start gap-4">
-                                                    <div className={clsx(
-                                                        "p-3 rounded-2xl shrink-0 transition-transform group-hover:scale-110 duration-300",
-                                                        mov.tipo_movimiento === 'Ingreso Compra' ? "bg-green-50 text-green-600" :
-                                                            mov.tipo_movimiento === 'Consumo OT' ? "bg-red-50 text-red-600" :
-                                                                "bg-gray-50 text-gray-600"
-                                                    )}>
-                                                        {mov.tipo_movimiento === 'Ingreso Compra' ? <ArrowUpCircle /> : <ArrowDownCircle />}
-                                                    </div>
-
-                                                    <div className="flex-1">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <p className="font-black text-gray-900 uppercase text-sm tracking-tight">{mov.tipo_movimiento}</p>
-                                                                <p className="text-[10px] font-bold text-gray-400 uppercase mt-0.5">
-                                                                    {new Date(mov.fecha_hora).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                                </p>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <p className={clsx(
-                                                                    "text-xl font-black",
-                                                                    mov.tipo_movimiento === 'Ingreso Compra' ? "text-green-600" : "text-red-600"
-                                                                )}>
-                                                                    {mov.tipo_movimiento === 'Ingreso Compra' ? '+' : '-'}{mov.cantidad}
-                                                                </p>
-                                                                <p className="text-[10px] font-bold text-gray-400 uppercase">{selectedMaterial.unidad_medida_stock}</p>
-
-                                                                {mov.tipo_movimiento === 'Consumo OT' && (
-                                                                    <button
-                                                                        onClick={() => handleReverseMovement(mov.id)}
-                                                                        className="mt-2 p-1.5 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-600 hover:text-white transition flex items-center gap-1 text-[10px] font-black uppercase w-fit ml-auto shadow-sm"
-                                                                        title="Devolver al stock"
-                                                                    >
-                                                                        <RotateCcw className="w-3 h-3" /> Devolver
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="mt-4 pt-4 border-t border-gray-50 flex flex-wrap gap-4">
-                                                            <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
-                                                                <FileText className="w-3.5 h-3.5" />
-                                                                Ref: <span className="text-gray-900 font-bold">{mov.referencia_id || 'S/N'}</span>
-                                                            </div>
-                                                            {mov.cliente && (
-                                                                <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium font-bold">
-                                                                    <div className="w-1.5 h-1.5 bg-brand-500 rounded-full"></div>
-                                                                    Cliente: <span className="text-brand-600">{mov.cliente.nombre}</span>
-                                                                </div>
-                                                            )}
-                                                            {mov.imagen_remision_url && (
-                                                                <a
-                                                                    href={mov.imagen_remision_url.startsWith('http') ? mov.imagen_remision_url : `${BASE_URL}${mov.imagen_remision_url}`}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="flex items-center gap-1.5 text-xs text-brand-600 font-bold hover:underline"
-                                                                >
-                                                                    <Download className="w-3.5 h-3.5" /> Ver Remisión
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-10 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
-                                        <p className="text-gray-400 font-bold">No hay movimientos registrados para este material.</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end">
-                            <button
-                                onClick={() => setShowDetailModal(false)}
-                                className="px-8 py-3 bg-white text-gray-900 font-black rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-100 transition active:scale-95"
-                            >
-                                CERRAR FICHA
-                            </button>
-                        </div>
-                    </div>
-                </div>
+            {/* Create / Edit Material Modal */}
+            {(showCreateModal || showEditModal) && (
+                <MaterialForm
+                    title={showEditModal ? 'Editar Material' : 'Nuevo Material'}
+                    data={materialFormData}
+                    setData={setMaterialFormData}
+                    onSubmit={handleMaterialSubmit}
+                    onClose={() => { setShowCreateModal(false); setShowEditModal(false); }}
+                    isEdit={showEditModal}
+                />
             )}
         </div>
     );
 };
-
-const Loader2 = ({ className }: { className?: string }) => (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-);
-

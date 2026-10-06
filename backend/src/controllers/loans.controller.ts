@@ -21,7 +21,7 @@ export const getLoans = async (req: Request, res: Response) => {
 
 export const lendTool = async (req: Request, res: Response) => {
     const { herramienta_id, personal_id, cantidad, observaciones } = req.body;
-    
+
     try {
         const result = await prisma.$transaction(async (tx) => {
             // 1. Check tool availability
@@ -48,7 +48,7 @@ export const lendTool = async (req: Request, res: Response) => {
             // 3. Update tool stock and state
             const newDisponible = tool.cantidad_disponible - Number(cantidad);
             let nuevoEstado = tool.estado;
-            
+
             if (newDisponible === 0) {
                 nuevoEstado = 'EN USO';
             } else if (newDisponible < tool.cantidad_total) {
@@ -75,85 +75,91 @@ export const lendTool = async (req: Request, res: Response) => {
 
 export const returnTool = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { observaciones } = req.body;
+    const { observaciones } = req.body || {};
 
     console.log(`[returnTool] Attempting return for loan ID: ${id}`);
-    
+
     if (!id || isNaN(Number(id))) {
         return res.status(400).json({ error: 'ID de préstamo inválido' });
     }
 
+    const loanId = Number(id);
+
     try {
-        const loanId = Number(id);
-        
-        // 1. Fetch loan with tool
-        const loan = await prisma.prestamoHerramienta.findUnique({
-            where: { id: loanId },
-            include: { herramienta: true }
-        });
+        // Envolver la operación en una transacción ACID estricta
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. Obtener préstamo con su herramienta dentro de la transacción
+            const loan = await tx.prestamoHerramienta.findUnique({
+                where: { id: loanId },
+                include: { herramienta: true }
+            });
 
-        if (!loan) {
-            return res.status(400).json({ error: 'Préstamo no encontrado' });
-        }
-        
-        if (loan.estado === 'DEVUELTO') {
-            return res.status(400).json({ error: 'Este préstamo ya fue devuelto' });
-        }
+            if (!loan) {
+                throw new Error('Préstamo no encontrado');
+            }
 
-        const tool = loan.herramienta;
-        if (!tool) {
-            return res.status(400).json({ error: 'Error de integridad: Herramienta no vinculada al préstamo' });
-        }
+            if (loan.estado === 'DEVUELTO') {
+                throw new Error('Este préstamo ya fue devuelto anteriormente');
+            }
 
-        // 2. Update loan record
-        const updateData: any = {
-            estado: 'DEVUELTO',
-            fecha_devolucion: new Date()
-        };
-        if (observaciones !== undefined) {
-            updateData.observaciones = observaciones;
-        }
+            const tool = loan.herramienta;
+            if (!tool) {
+                throw new Error('Error de integridad: Herramienta no vinculada al préstamo');
+            }
 
-        const updatedLoan = await prisma.prestamoHerramienta.update({
-            where: { id: loan.id },
-            data: updateData
-        });
+            // 2. Actualizar estado del préstamo
+            const updateData: any = {
+                estado: 'DEVUELTO',
+                fecha_devolucion: new Date()
+            };
+            if (observaciones !== undefined && observaciones !== null) {
+                updateData.observaciones = observaciones;
+            }
 
-        // 3. Calculate new stock
-        const currentDisponible = Number(tool.cantidad_disponible || 0);
-        const loanCantidad = Number(loan.cantidad || 0);
-        const totalStock = Number(tool.cantidad_total || 0);
-        
-        let newDisponible = currentDisponible + loanCantidad;
-        if (newDisponible > totalStock) {
-            newDisponible = totalStock;
-        }
+            const updatedLoan = await tx.prestamoHerramienta.update({
+                where: { id: loan.id },
+                data: updateData
+            });
 
-        let nuevoEstado = 'DISPONIBLE';
-        if (newDisponible < totalStock) {
-            nuevoEstado = 'PARCIALMENTE EN USO';
-        }
-        if (newDisponible === 0) {
-            nuevoEstado = 'EN USO';
-        }
+            // 3. Calcular el nuevo stock disponible y estado de la herramienta
+            const currentDisponible = Number(tool.cantidad_disponible || 0);
+            const loanCantidad = Number(loan.cantidad || 0);
+            const totalStock = Number(tool.cantidad_total || 0);
 
-        // 4. Update tool stock and state
-        try {
-            await prisma.herramientaConsumible.update({
+            let newDisponible = currentDisponible + loanCantidad;
+            if (newDisponible > totalStock) {
+                newDisponible = totalStock;
+            }
+
+            let nuevoEstado = 'DISPONIBLE';
+            if (newDisponible < totalStock) {
+                nuevoEstado = 'PARCIALMENTE EN USO';
+            }
+            if (newDisponible === 0) {
+                nuevoEstado = 'EN USO';
+            }
+
+            // 4. Actualizar stock y estado en la herramienta
+            await tx.herramientaConsumible.update({
                 where: { id: tool.id },
                 data: {
                     cantidad_disponible: newDisponible,
                     estado: nuevoEstado
                 }
             });
-        } catch (invError) {
-            console.error('[returnTool] Error actualizando inventario de la herramienta, ignorando...', invError);
-        }
 
-        res.json({ message: 'Herramienta devuelta con éxito (estado actualizado)', id: updatedLoan.id });
+            return updatedLoan;
+        });
+
+        return res.json({
+            message: 'Herramienta devuelta con éxito (estado e inventario actualizados)',
+            id: result.id
+        });
+
     } catch (error: any) {
         console.error('[returnTool] ERROR:', error.message || error);
-        res.status(500).json({ error: error.message || 'Error desconocido al devolver herramienta' });
+        return res.status(500).json({
+            error: error.message || 'Error interno al procesar la devolución de la herramienta'
+        });
     }
 };
-

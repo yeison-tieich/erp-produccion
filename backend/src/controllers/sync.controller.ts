@@ -21,6 +21,11 @@ export const pushChanges = async (req: Request, res: Response) => {
         finalData[key] = val;
       }
     });
+    if (finalData.proyecto_especial_id === '') {
+      finalData.proyecto_especial_id = null;
+    } else if (finalData.proyecto_especial_id !== undefined && finalData.proyecto_especial_id !== null) {
+      finalData.proyecto_especial_id = Number(finalData.proyecto_especial_id);
+    }
     return finalData;
   };
 

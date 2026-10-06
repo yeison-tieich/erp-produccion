@@ -94,6 +94,7 @@ class DatabaseService {
                     numero_ot TEXT NOT NULL,
                     tipo_orden TEXT DEFAULT 'PRODUCCION_SERIE',
                     producto_id INTEGER,
+                    proyecto_especial_id INTEGER,
                     cantidad_pedido INTEGER DEFAULT 0,
                     cantidad_fabricar INTEGER DEFAULT 0,
                     descripcion_proyecto TEXT,
@@ -190,6 +191,10 @@ class DatabaseService {
             `;
 
             await this.db.execute(schema);
+            const orderColumns = await this.db.query('PRAGMA table_info(OrdenTrabajo)');
+            if (!orderColumns.values?.some((column: any) => column.name === 'proyecto_especial_id')) {
+                await this.db.run('ALTER TABLE OrdenTrabajo ADD COLUMN proyecto_especial_id INTEGER');
+            }
             console.log('[DatabaseService] Esquema offline-first inicializado correctamente.');
         } catch (error) {
             console.error('[DatabaseService] Error al crear el esquema:', error);

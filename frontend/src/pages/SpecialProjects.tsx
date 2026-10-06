@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useSpecialProjectsStore } from '../store/specialProjects.store';
-import { API_URL } from '../api';
-import { Trash2, Plus, ArrowRight } from 'lucide-react';
+import { getAssetUrl } from '../api';
+import { AlertCircle, Loader2, Trash2, Plus, RefreshCw } from 'lucide-react';
 
 const SpecialProjects: React.FC = () => {
-  const { projects, fetchProjects, deleteProject } = useSpecialProjectsStore();
+  const { projects, loading, error, fetchProjects, deleteProject } = useSpecialProjectsStore();
   const [filterStatus, setFilterStatus] = React.useState<string>('Activos'); // 'Todos', 'Activos', 'Pendiente', 'En proceso', 'En pausa', 'Finalizado'
 
   useEffect(() => {
@@ -46,6 +46,7 @@ const SpecialProjects: React.FC = () => {
           <button
             key={status}
             onClick={() => setFilterStatus(status)}
+            aria-pressed={filterStatus === status}
             className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
               filterStatus === status 
               ? 'bg-brand-600 text-white shadow-md shadow-brand-100' 
@@ -56,12 +57,45 @@ const SpecialProjects: React.FC = () => {
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+      {loading && projects.length === 0 && (
+        <div className="flex items-center justify-center gap-3 rounded-2xl border border-gray-100 bg-white p-12 text-gray-500" role="status">
+          <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+          <span className="font-semibold">Cargando proyectos...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800 sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-bold">No se pudieron cargar los proyectos</p>
+              <p className="text-sm">{error}</p>
+            </div>
+          </div>
+          <button onClick={() => fetchProjects()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-bold text-red-700 shadow-sm hover:bg-red-100">
+            <RefreshCw className="h-4 w-4" /> Reintentar
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && filteredProjects.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center">
+          <h2 className="text-lg font-black text-gray-900">No hay proyectos en esta vista</h2>
+          <p className="mt-2 text-sm text-gray-500">Crea un proyecto o cambia el filtro para consultar otros estados.</p>
+          <Link to="/special-projects/new" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-3 text-sm font-black text-white hover:bg-brand-700">
+            <Plus className="h-4 w-4" /> Crear proyecto
+          </Link>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {filteredProjects.map((project) => (
           <div key={project.id} className="bg-white border p-0 rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
             {project.foto_referencia_url ? (
               <img 
-                src={`${API_URL.replace('/api', '')}${project.foto_referencia_url}`} 
+                src={getAssetUrl(project.foto_referencia_url)}
                 alt={project.descripcion_tecnica}
                 className="w-full h-48 object-cover"
               />
@@ -82,6 +116,7 @@ const SpecialProjects: React.FC = () => {
                   </span>
                   <button 
                     onClick={(e) => handleDelete(e, project.id)}
+                    aria-label={`Eliminar proyecto ${project.descripcion_tecnica}`}
                     className="text-gray-300 hover:text-red-500 transition-colors p-1"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -98,13 +133,26 @@ const SpecialProjects: React.FC = () => {
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2">
                   <div
+                    role="progressbar"
+                    aria-label={`Progreso de ${project.descripcion_tecnica}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.min(Math.max(Number(project.porcentaje_avance) || 0, 0), 100)}
                     className="bg-brand-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${project.porcentaje_avance}%` }}
+                    style={{ width: `${Math.min(Math.max(Number(project.porcentaje_avance) || 0, 0), 100)}%` }}
                   ></div>
                 </div>
-                <Link to={`/special-projects/${project.id}`} className="mt-4 w-full bg-gray-50 hover:bg-gray-100 text-gray-700 font-black py-3 rounded-xl text-center text-sm transition-all block">
-                  VER DETALLES
-                </Link>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <Link to={`/special-projects/${project.id}`} className="col-span-2 rounded-lg bg-slate-900 py-3 text-center text-sm font-bold text-white hover:bg-slate-800">
+                    Abrir proyecto
+                  </Link>
+                  <Link to={`/special-projects/${project.id}?action=pieces`} className="min-h-11 rounded-lg border border-slate-200 py-3 text-center text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Despiece
+                  </Link>
+                  <Link to={`/special-projects/${project.id}?action=advance`} className="min-h-11 rounded-lg border border-teal-200 bg-teal-50 py-3 text-center text-xs font-bold text-teal-800 hover:bg-teal-100">
+                    Registrar avance
+                  </Link>
+                </div>
               </div>
             </div>
           </div>

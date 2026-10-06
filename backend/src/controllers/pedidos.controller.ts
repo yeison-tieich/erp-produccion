@@ -379,7 +379,11 @@ export const generateOTFromPedido = async (req: Request, res: Response) => {
 
         // 3. Validar disponibilidad de materia prima (Opcional: generar alerta si no hay)
         let materialAlerts = [];
-        const cantNum = Number(cantidad_fabricar || pedido.saldo_pendiente || 0);
+        const saldoPendiente = Number(pedido.saldo_pendiente ?? ((pedido.cantidad || 0) - (pedido.cantidad_despachada || 0)));
+        const cantNum = Number(cantidad_fabricar || saldoPendiente || 0);
+        if (!Number.isFinite(cantNum) || cantNum <= 0 || cantNum > saldoPendiente) {
+            return res.status(400).json({ error: `La cantidad a fabricar debe estar entre 1 y el saldo pendiente (${saldoPendiente})` });
+        }
 
         for (const item of producto.listaMateriales) {
             let reqQty = Number(item.cantidad_requerida) * cantNum;
@@ -391,6 +395,9 @@ export const generateOTFromPedido = async (req: Request, res: Response) => {
             if (available < reqQty) {
                 materialAlerts.push(`${item.materiaPrima.nombre_mp}: requiere ${reqQty}, disponible ${available}`);
             }
+        }
+        if (materialAlerts.length > 0) {
+            return res.status(400).json({ error: 'Stock insuficiente para generar la OT', details: materialAlerts });
         }
 
         // 4. CREACIÓN AUTOMÁTICA DE LA OT
@@ -426,6 +433,7 @@ export const generateOTFromPedido = async (req: Request, res: Response) => {
                 data: producto.rutas.map(ruta => ({
                     orden_trabajo_id: newOT.id,
                     ruta_fabricacion_id: ruta.id,
+                    secuencia_ot: ruta.no_operacion,
                     estado_tarea: 'Pendiente'
                 }))
             });
@@ -446,7 +454,7 @@ export const generateOTFromPedido = async (req: Request, res: Response) => {
                 await tx.movimientoInventarioMP.create({
                     data: {
                         materia_prima_id: item.materia_prima_id,
-                        tipo_movimiento: 'En proceso',
+                        tipo_movimiento: 'RESERVA_OT',
                         cantidad: reserveQty,
                         referencia_id: numero_ot,
                         orden_trabajo_id: newOT.id

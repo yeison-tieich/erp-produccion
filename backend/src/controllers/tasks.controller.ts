@@ -2,19 +2,42 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 import { calculateWorkingMinutes } from '../utils/time';
+import { InventoryService } from '../services/inventory.service';
 
 export const getMyTasks = async (req: Request, res: Response) => {
-    // Note: Since we use Personal model instead of Usuario for operarios, 
-    // we might need a way to link Usuario to Personal if we want strictly "My Tasks".
-    // For now, let's return all tasks or filter if personal_id is provided.
     try {
+        const { personal_id, estado, prioridad, fecha } = req.query;
+        const where: any = {};
+
+        if (personal_id) {
+            where.personal_id = Number(personal_id);
+        }
+        if (estado) {
+            where.estado_tarea = String(estado);
+        }
+        if (prioridad) {
+            where.prioridad = String(prioridad);
+        }
+        if (fecha) {
+            const searchDate = new Date(String(fecha));
+            const nextDay = new Date(searchDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+
+            where.fecha = {
+                gte: searchDate,
+                lt: nextDay
+            };
+        }
+
         const tasks = await prisma.tareaProduccion.findMany({
+            where,
             include: {
                 ordenTrabajo: { include: { producto: true } },
                 rutaFabricacion: true,
                 personal: true,
                 maquina: true
-            }
+            },
+            orderBy: { id: 'desc' }
         });
         res.json(tasks);
     } catch (error) {
@@ -22,16 +45,50 @@ export const getMyTasks = async (req: Request, res: Response) => {
     }
 };
 
-export const assignTask = async (req: Request, res: Response) => {
+export const updateTaskWorkerStatus = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { personal_id, maquina_id } = req.body;
+    const { estado_tarea, comentarios } = req.body;
     try {
+        const data: any = {};
+        if (estado_tarea) data.estado_tarea = estado_tarea;
+        if (comentarios !== undefined) data.comentarios = comentarios;
+        if (estado_tarea === 'Iniciada' || estado_tarea === 'En Progreso') {
+            data.fecha_hora_inicio = new Date();
+        }
+        if (estado_tarea === 'Finalizada' || estado_tarea === 'Completada') {
+            data.fecha_hora_fin = new Date();
+        }
+
         const task = await prisma.tareaProduccion.update({
             where: { id: Number(id) },
-            data: {
-                personal_id: personal_id ? Number(personal_id) : null,
-                maquina_id: maquina_id ? Number(maquina_id) : null
-            },
+            data,
+            include: {
+                ordenTrabajo: true,
+                personal: true,
+                maquina: true
+            }
+        });
+        res.json(task);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al actualizar estado de tarea por operario', details: error.message });
+    }
+};
+
+export const assignTask = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { personal_id, maquina_id, prioridad, fecha, tiempo_estimado_min, comentarios } = req.body;
+    try {
+        const data: any = {};
+        if (personal_id !== undefined) data.personal_id = personal_id ? Number(personal_id) : null;
+        if (maquina_id !== undefined) data.maquina_id = maquina_id ? Number(maquina_id) : null;
+        if (prioridad) data.prioridad = prioridad;
+        if (fecha) data.fecha = new Date(fecha);
+        if (tiempo_estimado_min !== undefined) data.tiempo_estimado_min = Number(tiempo_estimado_min);
+        if (comentarios !== undefined) data.comentarios = comentarios;
+
+        const task = await prisma.tareaProduccion.update({
+            where: { id: Number(id) },
+            data,
             include: {
                 personal: true,
                 maquina: true
@@ -47,17 +104,15 @@ export const startTask = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
         const result = await prisma.$transaction(async (tx) => {
-            // 1. Update Task
             const task = await tx.tareaProduccion.update({
                 where: { id: Number(id) },
                 data: {
-                    estado_tarea: 'En Progreso',
+                    estado_tarea: 'Iniciada',
                     fecha_hora_inicio: new Date()
                 },
                 include: { ordenTrabajo: true }
             });
 
-            // 2. If Order is 'Pendiente', move to 'En Progreso'
             if (task.ordenTrabajo.estado_ot === 'Pendiente') {
                 await tx.ordenTrabajo.update({
                     where: { id: task.orden_trabajo_id },
@@ -78,7 +133,7 @@ export const startTask = async (req: Request, res: Response) => {
 
 export const finishTask = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { cantidad_buena, cantidad_mala, tiempo_parada_min, duracion_real_min } = req.body;
+    const { cantidad_buena, cantidad_mala, tiempo_parada_min, duracion_real_min, comentarios } = req.body;
 
     try {
         const result = await prisma.$transaction(async (tx) => {
@@ -97,9 +152,8 @@ export const finishTask = async (req: Request, res: Response) => {
                 duration = calculateWorkingMinutes(originalTask.fecha_hora_inicio, fecha_hora_fin);
             }
 
-            // 1. Calculate Cost if duration is available
             let costo_real = 0;
-            if (duration > 0) {
+            if (duration > 0 && originalTask.ruta_fabricacion_id) {
                 const ruta = await tx.rutaFabricacion.findUnique({
                     where: { id: originalTask.ruta_fabricacion_id }
                 });
@@ -116,33 +170,33 @@ export const finishTask = async (req: Request, res: Response) => {
                 }
             }
 
-            // 1. Update Task
             const task = await tx.tareaProduccion.update({
                 where: { id: Number(id) },
                 data: {
-                    estado_tarea: 'Completada',
+                    estado_tarea: 'Finalizada',
                     fecha_hora_fin: new Date(),
-                    cantidad_buena: Number(cantidad_buena),
-                    cantidad_mala: Number(cantidad_mala),
-                    tiempo_parada_min: Number(tiempo_parada_min),
+                    cantidad_buena: cantidad_buena !== undefined ? Number(cantidad_buena) : originalTask.cantidad_buena,
+                    cantidad_mala: cantidad_mala !== undefined ? Number(cantidad_mala) : originalTask.cantidad_mala,
+                    tiempo_parada_min: tiempo_parada_min !== undefined ? Number(tiempo_parada_min) : originalTask.tiempo_parada_min,
                     duracion_real_min: duration,
-                    costo_real: costo_real
+                    tiempo_real_min: duration,
+                    costo_real: costo_real,
+                    comentarios: comentarios !== undefined ? comentarios : originalTask.comentarios
                 },
                 include: { ordenTrabajo: { include: { producto: { include: { listaMateriales: true } } } } }
             });
 
-
-            // 2. Recalculate OT Totals (Duration and Costs)
             const allTasksInOrder = await tx.tareaProduccion.findMany({
-                where: { orden_trabajo_id: task.orden_trabajo_id }
+                where: { orden_trabajo_id: task.orden_trabajo_id },
+                include: { rutaFabricacion: true }
             });
 
             const totalCost = allTasksInOrder.reduce((acc, t) => acc + Number(t.costo_real || 0), 0);
             const totalDuration = allTasksInOrder.reduce((acc, t) => acc + (t.duracion_real_min || 0), 0);
 
-            const allDone = allTasksInOrder.every(t => t.estado_tarea === 'Completada');
+            const allDone = allTasksInOrder.every(t => t.estado_tarea === 'Finalizada' || t.estado_tarea === 'Completada');
 
-            await tx.ordenTrabajo.update({
+            const completedOrder = await tx.ordenTrabajo.update({
                 where: { id: task.orden_trabajo_id },
                 data: {
                     costo_total_real: totalCost,
@@ -152,37 +206,27 @@ export const finishTask = async (req: Request, res: Response) => {
                 }
             });
 
-            if (allDone) {
-                // 4. Consume Stock & Release Reservation
-                const ot = await tx.ordenTrabajo.findUnique({
-                    where: { id: task.orden_trabajo_id },
-                    include: { producto: { include: { listaMateriales: true } } }
+            if (allDone && task.ordenTrabajo.estado_ot !== 'Completada') {
+                // Consume materials via idempotent service (no-op if already consumed)
+                await InventoryService.consumeMaterialsForOrder(tx, task.orden_trabajo_id, {
+                    usuarioNombre: (req as any).user?.nombre || 'Operario',
+                    observacion: `Consumo automático al finalizar última tarea de OT ${task.ordenTrabajo.numero_ot}`,
+                    targetStatus: 'Completada'
                 });
 
-                if (ot) {
-                    const qty = ot.cantidad_fabricar;
-                    for (const item of ot.producto.listaMateriales) {
-                        const totalConsumed = Number(item.cantidad_requerida) * Number(qty);
-                        await tx.materiaPrima.update({
-                            where: { id: item.materia_prima_id },
-                            data: {
-                                stock_reservado: { decrement: totalConsumed },
-                                stock_actual: { decrement: totalConsumed }
-                            }
-                        });
-                        await tx.movimientoInventarioMP.create({
-                            data: {
-                                materia_prima_id: item.materia_prima_id,
-                                tipo_movimiento: 'Consumo OT',
-                                cantidad: -totalConsumed,
-                                referencia_id: ot.numero_ot
-                            }
-                        });
-                    }
+                // Update finished product stock
+                const lastTask = [...allTasksInOrder].sort((a, b) => (b.secuencia_ot ?? b.rutaFabricacion?.no_operacion ?? b.id) - (a.secuencia_ot ?? a.rutaFabricacion?.no_operacion ?? a.id))[0];
+                const cantidadTerminada = Number(lastTask?.cantidad_buena || 0);
+                if (completedOrder.producto_id && cantidadTerminada > 0) {
+                    await tx.producto.update({ where: { id: completedOrder.producto_id }, data: { stock_actual: { increment: cantidadTerminada } } });
+                    await tx.movimientoProducto.create({ data: { producto_id: completedOrder.producto_id, tipo_movimiento: 'PRODUCCION_OT', cantidad: cantidadTerminada, referencia: completedOrder.numero_ot } });
                 }
             }
 
             return task;
+        }, {
+            maxWait: 10000,
+            timeout: 30000
         });
 
         res.json(result);
@@ -191,6 +235,7 @@ export const finishTask = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error finishing task' });
     }
 };
+
 export const deleteTask = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
@@ -208,14 +253,19 @@ export const deleteTask = async (req: Request, res: Response) => {
 };
 
 export const createTarea = async (req: Request, res: Response) => {
-    const { orden_trabajo_id, ruta_fabricacion_id, personal_id, maquina_id } = req.body;
+    const { orden_trabajo_id, ruta_fabricacion_id, personal_id, maquina_id, prioridad, fecha, tiempo_estimado_min, comentarios } = req.body;
     try {
         const task = await prisma.tareaProduccion.create({
             data: {
                 orden_trabajo_id: Number(orden_trabajo_id),
-                ruta_fabricacion_id: Number(ruta_fabricacion_id),
+                ruta_fabricacion_id: ruta_fabricacion_id ? Number(ruta_fabricacion_id) : null,
+                secuencia_ot: req.body.secuencia_ot !== undefined ? Number(req.body.secuencia_ot) : null,
                 personal_id: personal_id ? Number(personal_id) : null,
                 maquina_id: maquina_id ? Number(maquina_id) : null,
+                prioridad: prioridad || 'MEDIA',
+                fecha: fecha ? new Date(fecha) : new Date(),
+                tiempo_estimado_min: tiempo_estimado_min ? Number(tiempo_estimado_min) : 0,
+                comentarios: comentarios || '',
                 estado_tarea: 'Pendiente'
             },
             include: {
@@ -231,7 +281,6 @@ export const createTarea = async (req: Request, res: Response) => {
     }
 };
 
-// Actualizar detalles de una tarea (hora inicio/fin, costo, orden)
 export const updateTaskDetails = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { 
@@ -240,120 +289,68 @@ export const updateTaskDetails = async (req: Request, res: Response) => {
         costo_real, 
         duracion_real_min,
         cantidad_buena,
-        cantidad_mala
+        cantidad_mala,
+        prioridad,
+        fecha,
+        tiempo_estimado_min,
+        comentarios,
+        estado_tarea
     } = req.body;
     try {
         const updateData: any = {};
-        let finalDuration = duracion_real_min;
-        let finalCostoReal = costo_real;
+        if (prioridad) updateData.prioridad = prioridad;
+        if (fecha) updateData.fecha = new Date(fecha);
+        if (tiempo_estimado_min !== undefined) updateData.tiempo_estimado_min = Number(tiempo_estimado_min);
+        if (comentarios !== undefined) updateData.comentarios = comentarios;
+        if (estado_tarea) updateData.estado_tarea = estado_tarea;
 
         if (fecha_hora_inicio) updateData.fecha_hora_inicio = new Date(fecha_hora_inicio);
         if (fecha_hora_fin) updateData.fecha_hora_fin = new Date(fecha_hora_fin);
-
-        // Auto-calculate duration if times are provided but duration is not
-        if (finalDuration === undefined) {
-            const start = fecha_hora_inicio ? new Date(fecha_hora_inicio) : undefined;
-            const end = fecha_hora_fin ? new Date(fecha_hora_fin) : undefined;
-            
-            if (start || end) {
-                const currentTask = await prisma.tareaProduccion.findUnique({ where: { id: Number(id) } });
-                if (currentTask) {
-                    const finalStart = start || currentTask.fecha_hora_inicio;
-                    const finalEnd = end || currentTask.fecha_hora_fin;
-                    if (finalStart && finalEnd) {
-                        finalDuration = calculateWorkingMinutes(finalStart, finalEnd);
-                    }
-                }
-            }
-        }
-
-        // If duration is provided but cost is not, try to calculate it
-        if (finalDuration !== undefined && finalCostoReal === undefined) {
-             const originalTask = await prisma.tareaProduccion.findUnique({
-                where: { id: Number(id) },
-                include: { rutaFabricacion: true }
-             });
-
-             if (originalTask) {
-                const catalogOp = await prisma.operacionCatalog.findFirst({
-                    where: { nombre_operacion: originalTask.rutaFabricacion.nombre_operacion }
-                });
-                
-                if (catalogOp && catalogOp.costo_hora) {
-                    const calculatedCost = (finalDuration / 60) * Number(catalogOp.costo_hora);
-                    finalCostoReal = Number(calculatedCost.toFixed(2));
-                }
-             }
-        }
-
-        if (finalCostoReal !== undefined) updateData.costo_real = Number(finalCostoReal.toFixed(2));
-        if (finalDuration !== undefined) updateData.duracion_real_min = finalDuration;
+        if (costo_real !== undefined) updateData.costo_real = Number(costo_real);
+        if (duracion_real_min !== undefined) updateData.duracion_real_min = Number(duracion_real_min);
         if (cantidad_buena !== undefined) updateData.cantidad_buena = Number(cantidad_buena);
         if (cantidad_mala !== undefined) updateData.cantidad_mala = Number(cantidad_mala);
 
-        const task = await prisma.$transaction(async (tx) => {
-            const updatedTask = await tx.tareaProduccion.update({
-                where: { id: Number(id) },
-                data: updateData,
-                include: {
-                    rutaFabricacion: true,
-                    personal: true,
-                    maquina: true,
-                    ordenTrabajo: true
-                }
-            });
-
-            // Recalculate OT Totals
-            const allTasksInOrder = await tx.tareaProduccion.findMany({
-                where: { orden_trabajo_id: updatedTask.orden_trabajo_id }
-            });
-
-            const totalCost = allTasksInOrder.reduce((acc, t) => acc + Number(t.costo_real || 0), 0);
-            const totalDuration = allTasksInOrder.reduce((acc, t) => acc + (t.duracion_real_min || 0), 0);
-
-            await tx.ordenTrabajo.update({
-                where: { id: updatedTask.orden_trabajo_id },
-                data: {
-                    costo_total_real: totalCost,
-                    duracion_total_real_min: totalDuration
-                }
-            });
-
-            return updatedTask;
+        const updatedTask = await prisma.tareaProduccion.update({
+            where: { id: Number(id) },
+            data: updateData,
+            include: {
+                rutaFabricacion: true,
+                personal: true,
+                maquina: true,
+                ordenTrabajo: true
+            }
         });
 
-        res.json(task);
+        res.json(updatedTask);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error actualizando detalles de tarea' });
     }
 };
 
-// Reordenar tareas de una orden
 export const reorderTasks = async (req: Request, res: Response) => {
     const { orden_trabajo_id, taskIds } = req.body;
 
     try {
         const result = await prisma.$transaction(async (tx) => {
             for (let i = 0; i < taskIds.length; i++) {
-                // Update no_operacion en la ruta para reflejar el nuevo orden
                 const task = await tx.tareaProduccion.findUnique({ 
                     where: { id: Number(taskIds[i]) },
                     include: { rutaFabricacion: true }
                 });
 
-                if (task) {
-                    await tx.rutaFabricacion.update({
-                        where: { id: task.ruta_fabricacion_id },
-                        data: { no_operacion: (i + 1) * 10 }
+                if (task && task.orden_trabajo_id === Number(orden_trabajo_id)) {
+                    await tx.tareaProduccion.update({
+                        where: { id: task.id },
+                        data: { secuencia_ot: (i + 1) * 10 }
                     });
                 }
             }
 
             const tasks = await tx.tareaProduccion.findMany({
                 where: { orden_trabajo_id: Number(orden_trabajo_id) },
-                include: { rutaFabricacion: true, ordenTrabajo: true },
-                orderBy: { rutaFabricacion: { no_operacion: 'asc' } }
+                include: { rutaFabricacion: true, ordenTrabajo: true }
             });
 
             return tasks;
@@ -365,3 +362,4 @@ export const reorderTasks = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error reordenando tareas' });
     }
 };
+
