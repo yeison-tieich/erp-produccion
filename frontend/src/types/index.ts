@@ -113,6 +113,7 @@ export interface PiezaProyecto {
   codigo?: string | null;
   nombre: string;
   cantidad: number;
+  cantidad_completada?: number;
   avance_fabricacion: number;
   requiere_montaje: boolean;
   estado_montaje: string;

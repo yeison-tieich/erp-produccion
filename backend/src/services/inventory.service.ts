@@ -81,33 +81,46 @@ export class InventoryService {
 
                 const stockActual = Number(mp.stock_actual);
                 const stockReservado = Number(mp.stock_reservado);
-                const stockDisponible = stockActual - stockReservado;
+                const stockDisponible = Math.max(0, stockActual - stockReservado);
+                const cantidadReservar = Math.min(cantidadRequerida, stockDisponible);
+                const faltante = Math.max(0, cantidadRequerida - stockDisponible);
 
-                if (stockDisponible < cantidadRequerida) {
-                    throw new Error(
-                        `Stock insuficiente para reservar ${mp.nombre_mp} (${mp.sku_mp}). ` +
-                        `Requerido: ${cantidadRequerida} (${unidadCalculo}), Disponible: ${stockDisponible}, Faltante: ${(cantidadRequerida - stockDisponible).toFixed(2)}`
-                    );
+                if (cantidadReservar > 0) {
+                    await tx.materiaPrima.update({
+                        where: { id: mp.id },
+                        data: { stock_reservado: { increment: cantidadReservar } }
+                    });
+
+                    await tx.movimientoInventarioMP.create({
+                        data: {
+                            materia_prima_id: mp.id,
+                            tipo_movimiento: 'RESERVA_OT',
+                            cantidad: cantidadReservar,
+                            stock_anterior: stockActual,
+                            stock_posterior: stockActual,
+                            referencia_id: order.numero_ot,
+                            orden_trabajo_id: order.id,
+                            usuario_nombre: usuarioNombre,
+                            observacion: `Reserva parcial para OT ${order.numero_ot} (${order.cantidad_fabricar} pzas de ${order.producto.nombre_producto}) - disponible ${stockDisponible} de ${cantidadRequerida} (${unidadCalculo})`
+                        }
+                    });
                 }
 
-                await tx.materiaPrima.update({
-                    where: { id: mp.id },
-                    data: { stock_reservado: { increment: cantidadRequerida } }
-                });
-
-                await tx.movimientoInventarioMP.create({
-                    data: {
-                        materia_prima_id: mp.id,
-                        tipo_movimiento: 'RESERVA_OT',
-                        cantidad: cantidadRequerida,
-                        stock_anterior: stockActual,
-                        stock_posterior: stockActual, // El stock físico no cambia con una reserva
-                        referencia_id: order.numero_ot,
-                        orden_trabajo_id: order.id,
-                        usuario_nombre: usuarioNombre,
-                        observacion: `Reserva para OT ${order.numero_ot} (${order.cantidad_fabricar} pzas de ${order.producto.nombre_producto})`
-                    }
-                });
+                if (faltante > 0) {
+                    await tx.movimientoInventarioMP.create({
+                        data: {
+                            materia_prima_id: mp.id,
+                            tipo_movimiento: 'PENDIENTE_ABASTECIMIENTO',
+                            cantidad: faltante,
+                            stock_anterior: stockActual,
+                            stock_posterior: stockActual,
+                            referencia_id: order.numero_ot,
+                            orden_trabajo_id: order.id,
+                            usuario_nombre: usuarioNombre,
+                            observacion: `Faltante de abastecimiento para OT ${order.numero_ot}. Requiere ${cantidadRequerida} (${unidadCalculo}), disponible ${stockDisponible}. Debe comprarse ${faltante}.`
+                        }
+                    });
+                }
             }
         }
     }
@@ -315,29 +328,7 @@ export class InventoryService {
 
         // ========================================================
         // VALIDACIÓN DE STOCK FÍSICO ANTES DE DESCONTAR:
-        // No permitir stock negativo
-        // ========================================================
-        for (const item of itemsToProcess) {
-            const currentMP = await tx.materiaPrima.findUnique({ where: { id: item.materia_prima_id } });
-            if (!currentMP) throw new Error(`Materia prima ${item.materia_prima_id} no encontrada.`);
-
-            const stockActual = Number(currentMP.stock_actual);
-            const cantidadRequerida = item.cantidadAConsumir;
-
-            if (stockActual < cantidadRequerida) {
-                const diferencia = (cantidadRequerida - stockActual).toFixed(2);
-                throw new Error(
-                    `No es posible cerrar la OT ${order.numero_ot} porque la materia prima ` +
-                    `"${currentMP.nombre_mp}" no tiene cantidad suficiente en stock físico. ` +
-                    `Requerida: ${cantidadRequerida} ${currentMP.unidad_medida_stock}, ` +
-                    `Stock actual: ${stockActual} ${currentMP.unidad_medida_stock}, ` +
-                    `Faltante: ${diferencia} ${currentMP.unidad_medida_stock}.`
-                );
-            }
-        }
-
-        // ========================================================
-        // EJECUCIÓN ATÓMICA DE CONSUMO Y LIBERACIÓN DE RESERVA:
+        // No permitir stock negativo ni inventar material no disponible.
         // ========================================================
         const executedConsumptions = [];
 
@@ -346,7 +337,9 @@ export class InventoryService {
             if (!currentMP) continue;
 
             const stockAnterior = Number(currentMP.stock_actual);
-            const stockPosterior = stockAnterior - item.cantidadAConsumir;
+            const cantidadDisponible = Math.max(0, Math.min(item.cantidadAConsumir, stockAnterior));
+            const faltante = Math.max(0, item.cantidadAConsumir - stockAnterior);
+            const stockPosterior = stockAnterior - cantidadDisponible;
 
             // La reserva a decrementar es como máximo la reserva que tenía esta OT
             // y nunca mayor a lo que la MP tiene en stock_reservado actualmente
@@ -355,31 +348,47 @@ export class InventoryService {
                 item.cantidadReservada
             );
 
-            // 1. Actualizar Materia Prima:
-            // - Descontar stock físico (stock_actual)
-            // - Liberar stock reservado (stock_reservado)
-            await tx.materiaPrima.update({
-                where: { id: item.materia_prima_id },
-                data: {
-                    stock_actual: { decrement: item.cantidadAConsumir },
-                    stock_reservado: { decrement: reservaADecrementar }
-                }
-            });
+            if (cantidadDisponible > 0) {
+                await tx.materiaPrima.update({
+                    where: { id: item.materia_prima_id },
+                    data: {
+                        stock_actual: { decrement: cantidadDisponible },
+                        stock_reservado: { decrement: reservaADecrementar }
+                    }
+                });
 
-            // 2. Registrar Movimiento de Consumo de Inventario
-            const mov = await tx.movimientoInventarioMP.create({
-                data: {
-                    materia_prima_id: item.materia_prima_id,
-                    tipo_movimiento: 'CONSUMO_OT',
-                    cantidad: -item.cantidadAConsumir,
-                    stock_anterior: stockAnterior,
-                    stock_posterior: stockPosterior,
-                    referencia_id: order.numero_ot,
-                    orden_trabajo_id: order.id,
-                    usuario_nombre: usuarioNombre,
-                    observacion: `${observacion} - OT ${order.numero_ot}. Consumo de ${item.cantidadAConsumir} ${currentMP.unidad_medida_stock}. Reserva liberada: ${reservaADecrementar}.`
-                }
-            });
+                const mov = await tx.movimientoInventarioMP.create({
+                    data: {
+                        materia_prima_id: item.materia_prima_id,
+                        tipo_movimiento: 'CONSUMO_OT',
+                        cantidad: -cantidadDisponible,
+                        stock_anterior: stockAnterior,
+                        stock_posterior: stockPosterior,
+                        referencia_id: order.numero_ot,
+                        orden_trabajo_id: order.id,
+                        usuario_nombre: usuarioNombre,
+                        observacion: `${observacion} - OT ${order.numero_ot}. Consumo real de ${cantidadDisponible} ${currentMP.unidad_medida_stock}. Reserva liberada: ${reservaADecrementar}.`
+                    }
+                });
+
+                executedConsumptions.push(mov);
+            }
+
+            if (faltante > 0) {
+                await tx.movimientoInventarioMP.create({
+                    data: {
+                        materia_prima_id: item.materia_prima_id,
+                        tipo_movimiento: 'PENDIENTE_ABASTECIMIENTO',
+                        cantidad: faltante,
+                        stock_anterior: stockAnterior,
+                        stock_posterior: stockAnterior,
+                        referencia_id: order.numero_ot,
+                        orden_trabajo_id: order.id,
+                        usuario_nombre: usuarioNombre,
+                        observacion: `Faltante de materiales para OT ${order.numero_ot}. Requerido ${item.cantidadAConsumir}, consumido ${cantidadDisponible}, pendiente ${faltante} ${currentMP.unidad_medida_stock}.`
+                    }
+                });
+            }
 
             // 3. Si hubo devolución / sobrante (se reservó más de lo consumido):
             if (item.cantidadReservada > item.cantidadAConsumir) {
@@ -398,8 +407,6 @@ export class InventoryService {
                     }
                 });
             }
-
-            executedConsumptions.push(mov);
         }
 
         // ========================================================
@@ -416,47 +423,245 @@ export class InventoryService {
         });
 
         // ========================================================
-        // ACTUALIZAR STOCK DE PRODUCTO TERMINADO (SI APLICA):
+        // NOTA: El ingreso al stock de producto terminado NO se
+        // ejecuta en el consumo de materias primas; se gestiona
+        // exclusivamente a través de registerFinishedProductEntry
+        // al completar la operación «VERIFICACIÓN Y EMPAQUE».
         // ========================================================
-        if (order.producto_id && order.cantidad_fabricar > 0) {
-            // Validar que no se haya registrado ya movimiento de producto terminado para esta OT
-            const alreadyProduced = await tx.movimientoProducto.findFirst({
-                where: {
-                    producto_id: order.producto_id,
-                    referencia: order.numero_ot,
-                    tipo_movimiento: 'PRODUCCION_OT'
-                }
-            });
-
-            if (!alreadyProduced) {
-                // Cantidad terminada (de última tarea o cantidad a fabricar de la orden)
-                const lastTask = [...(order.tareas || [])].sort(
-                    (a, b) => (b.secuencia_ot || b.id) - (a.secuencia_ot || a.id)
-                )[0];
-                const cantidadBuena = lastTask?.cantidad_buena ? Number(lastTask.cantidad_buena) : order.cantidad_fabricar;
-
-                if (cantidadBuena > 0) {
-                    await tx.producto.update({
-                        where: { id: order.producto_id },
-                        data: { stock_actual: { increment: cantidadBuena } }
-                    });
-
-                    await tx.movimientoProducto.create({
-                        data: {
-                            producto_id: order.producto_id,
-                            tipo_movimiento: 'PRODUCCION_OT',
-                            cantidad: cantidadBuena,
-                            referencia: order.numero_ot
-                        }
-                    });
-                }
-            }
-        }
 
         return {
             alreadyConsumed: false,
             order: updatedOrder,
             consumptions: executedConsumptions
+        };
+    }
+
+    /**
+     * Determina si una tarea corresponde a la operación de "VERIFICACIÓN Y EMPAQUE"
+     * que habilita el ingreso de producto terminado al catálogo.
+     */
+    static isVerificationAndPackagingTask(task: {
+        rutaFabricacion?: { nombre_operacion?: string | null } | null;
+    }): boolean {
+        const rawName = task.rutaFabricacion?.nombre_operacion || '';
+        const clean = rawName
+            .toUpperCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim();
+
+        if (clean === 'VERIFICACION DE MEDIDA') return false;
+
+        return (
+            clean === 'VERIFICACION Y EMPAQUE' ||
+            clean === 'VERIFICACION' ||
+            clean === 'EMPAQUE' ||
+            clean.includes('VERIFICACION Y EMPAQUE') ||
+            clean.includes('EMPAQUE') ||
+            clean.includes('VERIFICACION')
+        );
+    }
+
+    /**
+     * Verifica si una tarea es la responsable de ingresar producto terminado al catálogo.
+     * Reglas de negocio:
+     * 1. Las operaciones anteriores NO deben generar entradas de producto terminado.
+     * 2. Si la orden posee tareas de VERIFICACIÓN Y EMPAQUE, exclusivamente ellas ingresan stock.
+     * 3. Fallback: Si la ruta del producto no tiene ninguna operación de verificación/empaque,
+     *    únicamente la última tarea de la ruta puede ingresar producto terminado.
+     */
+    static isEligibleForFinishedStockEntry(
+        currentTask: { id: number; secuencia_ot?: number | null; rutaFabricacion?: { no_operacion?: number | null; nombre_operacion?: string | null } | null },
+        allOrderTasks: Array<{ id: number; secuencia_ot?: number | null; rutaFabricacion?: { no_operacion?: number | null; nombre_operacion?: string | null } | null }>
+    ): boolean {
+        if (InventoryService.isVerificationAndPackagingTask(currentTask)) {
+            return true;
+        }
+
+        const hasVerificationTask = allOrderTasks.some(t => InventoryService.isVerificationAndPackagingTask(t));
+        if (hasVerificationTask) {
+            return false;
+        }
+
+        const sorted = [...allOrderTasks].sort(
+            (a, b) => (b.secuencia_ot ?? b.rutaFabricacion?.no_operacion ?? b.id) - (a.secuencia_ot ?? a.rutaFabricacion?.no_operacion ?? a.id)
+        );
+        return sorted.length > 0 && sorted[0].id === currentTask.id;
+    }
+
+    /**
+     * Registra el ingreso de producto terminado al catálogo de productos de forma transaccional,
+     * atómica e idempotente, respetando entregas parciales y deltas aprobados.
+     */
+    static async registerFinishedProductEntry(
+        tx: any,
+        params: {
+            ordenTrabajoId: number;
+            tareaId: number;
+            cantidadBuenaAprobada: number;
+            usuarioNombre?: string;
+            observacion?: string;
+        }
+    ) {
+        const { ordenTrabajoId, tareaId, cantidadBuenaAprobada, usuarioNombre, observacion } = params;
+
+        const task = await tx.tareaProduccion.findUnique({
+            where: { id: tareaId },
+            include: {
+                rutaFabricacion: true,
+                ordenTrabajo: {
+                    include: {
+                        producto: true,
+                        tareas: {
+                            include: { rutaFabricacion: true }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!task) {
+            throw new Error(`Tarea ${tareaId} no encontrada.`);
+        }
+
+        const order = task.ordenTrabajo;
+        if (!order) {
+            throw new Error(`Orden asociada a la tarea ${tareaId} no encontrada.`);
+        }
+
+        if (!order.producto_id) {
+            return {
+                executed: false,
+                reason: 'La orden no tiene producto_id asociado en catálogo.'
+            };
+        }
+
+        // CONDICIÓN 1: Las operaciones anteriores no deben generar entradas de producto terminado.
+        const isEligible = InventoryService.isEligibleForFinishedStockEntry(task, order.tareas);
+        if (!isEligible) {
+            return {
+                executed: false,
+                reason: `La operación "${task.rutaFabricacion?.nombre_operacion || 'Operación previa'}" no genera entradas de producto terminado (solo Verificación y Empaque).`
+            };
+        }
+
+        // CONDICIÓN 2 & 6: Registrar únicamente la cantidad aprobada y soportar entregas parciales mediante delta
+        const aprobadaActual = Math.max(0, Number(cantidadBuenaAprobada || 0));
+        const yaIngresada = Math.max(0, Number(task.cantidad_ingresada_stock || 0));
+        const delta = aprobadaActual - yaIngresada;
+
+        // CONDICIONES 3, 4, 5: Si no hay incremento positivo (re-guardado sin cambios o delta <= 0), no generar entrada
+        if (delta <= 0) {
+            return {
+                executed: false,
+                delta: 0,
+                alreadyCredited: yaIngresada,
+                reason: 'No hay unidades adicionales aprobadas para ingresar al stock.'
+            };
+        }
+
+        // Clave de idempotencia única a nivel de transacción y PostgreSQL
+        const idempotencyKey = `PROD_OT_${order.id}_TASK_${task.id}_P_${order.producto_id}_FROM_${yaIngresada}_TO_${aprobadaActual}`;
+
+        const existingMovement = await tx.movimientoProducto.findUnique({
+            where: { idempotency_key: idempotencyKey }
+        });
+
+        if (existingMovement) {
+            return {
+                executed: false,
+                alreadyExists: true,
+                movement: existingMovement,
+                reason: 'El movimiento para esta entrega ya fue registrado previamente (idempotente).'
+            };
+        }
+
+        // Transacción Atómica: Lectura de stock anterior y actualización de stock posterior
+        const producto = await tx.producto.findUnique({
+            where: { id: order.producto_id }
+        });
+
+        if (!producto) {
+            throw new Error(`Producto ${order.producto_id} no encontrado.`);
+        }
+
+        const stockAnterior = producto.stock_actual;
+        const stockPosterior = stockAnterior + delta;
+
+        // 1. Actualizar stock del producto
+        await tx.producto.update({
+            where: { id: order.producto_id },
+            data: {
+                stock_actual: { increment: delta }
+            }
+        });
+
+        // 2. Crear movimiento de producto con control antiduplicados
+        const opName = task.rutaFabricacion?.nombre_operacion || 'VERIFICACIÓN Y EMPAQUE';
+        let movimiento;
+        try {
+            movimiento = await tx.movimientoProducto.create({
+                data: {
+                    producto_id: order.producto_id,
+                    orden_trabajo_id: order.id,
+                    tarea_id: task.id,
+                    tipo_movimiento: 'PRODUCCION_OT',
+                    cantidad: delta,
+                    referencia: order.numero_ot,
+                    idempotency_key: idempotencyKey,
+                    stock_anterior: stockAnterior,
+                    stock_posterior: stockPosterior,
+                    usuario: usuarioNombre || 'Sistema',
+                    observacion: observacion || `Ingreso de producto terminado: ${opName} (OT ${order.numero_ot}). Entrega: +${delta} uds (Total aprobadas: ${aprobadaActual}).`
+                }
+            });
+        } catch (err: any) {
+            if (err?.code === 'P2002' || err?.message?.includes('idempotency_key')) {
+                console.log(`[InventoryService] Idempotencia interceptó solicitud simultánea: ${idempotencyKey}`);
+                const existing = await tx.movimientoProducto.findUnique({ where: { idempotency_key: idempotencyKey } });
+                return {
+                    executed: false,
+                    alreadyExists: true,
+                    movement: existing,
+                    reason: 'Entrada duplicada prevenida por clave de idempotencia única.'
+                };
+            }
+            throw err;
+        }
+
+        // 3. Marcar tarea con la cantidad ingresada al stock
+        await tx.tareaProduccion.update({
+            where: { id: task.id },
+            data: {
+                cantidad_ingresada_stock: aprobadaActual,
+                ingreso_stock_procesado: true,
+                fecha_ingreso_stock: new Date()
+            }
+        });
+
+        // 4. Actualizar total aprobado en la Orden de Trabajo
+        const allVerificationTasks = order.tareas.filter((t: any) => 
+            t.id === task.id ? true : InventoryService.isVerificationAndPackagingTask(t)
+        );
+        const totalAprobadoOT = allVerificationTasks.reduce((sum: number, t: any) => {
+            if (t.id === task.id) return sum + aprobadaActual;
+            return sum + (Number(t.cantidad_ingresada_stock || t.cantidad_buena) || 0);
+        }, 0);
+
+        await tx.ordenTrabajo.update({
+            where: { id: order.id },
+            data: {
+                cantidad_aprobada: totalAprobadoOT
+            }
+        });
+
+        return {
+            executed: true,
+            delta,
+            stockAnterior,
+            stockPosterior,
+            idempotencyKey,
+            movimiento
         };
     }
 

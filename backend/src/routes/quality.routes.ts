@@ -36,7 +36,19 @@ import {
     createDocumentSGC,
     createDocumentVersion,
     getTraceabilityByOT,
-    getQualityAuditLogs
+    getQualityAuditLogs,
+    getMeasurementInstruments,
+    createMeasurementInstrument,
+    getEngineeringChanges,
+    createEngineeringChange,
+    decideEngineeringChange,
+    createQualityCost,
+    getEthicsAcceptance,
+    acceptEthicsPolicy,
+    getQualityContext,
+    createQualityContext,
+    getLeadershipCommitments,
+    createLeadershipCommitment
 } from '../controllers/quality.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 
@@ -102,5 +114,17 @@ router.get('/traceability/:id', authenticateToken, getTraceabilityByOT);
 
 // Auditoría del Sistema
 router.get('/audit-logs', authenticateToken, getQualityAuditLogs);
+router.get('/measurement-instruments', authenticateToken, getMeasurementInstruments);
+router.post('/measurement-instruments', authenticateToken, createMeasurementInstrument);
+router.get('/engineering-changes', authenticateToken, getEngineeringChanges);
+router.post('/engineering-changes', authenticateToken, createEngineeringChange);
+router.put('/engineering-changes/:id/decision', authenticateToken, decideEngineeringChange);
+router.post('/non-quality-costs', authenticateToken, createQualityCost);
+router.get('/ethics-acceptance', authenticateToken, getEthicsAcceptance);
+router.post('/ethics-acceptance', authenticateToken, acceptEthicsPolicy);
+router.get('/context-assessments', authenticateToken, getQualityContext);
+router.post('/context-assessments', authenticateToken, createQualityContext);
+router.get('/leadership-commitments', authenticateToken, getLeadershipCommitments);
+router.post('/leadership-commitments', authenticateToken, createLeadershipCommitment);
 
 export default router;

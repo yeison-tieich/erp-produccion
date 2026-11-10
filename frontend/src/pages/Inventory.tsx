@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../api';
 import {
@@ -90,7 +91,8 @@ const fmtNum = (n: any) => Number(n).toLocaleString('es-MX', { maximumFractionDi
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export const Inventory = () => {
-    const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+    const [searchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState<Tab>(() => searchParams.get('tab') === 'catalogo' ? 'catalogo' : 'dashboard');
     const [materials, setMaterials] = useState<Material[]>([]);
     const [loading, setLoading] = useState(true);
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -103,8 +105,10 @@ export const Inventory = () => {
     const [auditLoading, setAuditLoading] = useState(false);
 
     // UI state
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterEstado, setFilterEstado] = useState('TODOS');
+    const [searchTerm, setSearchTerm] = useState(() => searchParams.get('material') || '');
+    const [filterEstado, setFilterEstado] = useState(() =>
+        searchParams.get('filter') === 'low' && !searchParams.has('material') ? 'BAJO MÍNIMO' : 'TODOS'
+    );
     const [filterCategoria, setFilterCategoria] = useState('TODAS');
     const [movSearch, setMovSearch] = useState('');
 
@@ -279,7 +283,7 @@ export const Inventory = () => {
     ];
 
     return (
-        <div style={{ minHeight: '100vh', background: 'transparent', padding: '24px', color: '#1e293b' }}>
+        <div className="inventory-page" style={{ minHeight: '100vh', background: 'transparent', padding: '24px', color: '#1e293b' }}>
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
@@ -343,12 +347,12 @@ export const Inventory = () => {
                     <InventoryConsistencyWidget onCleanReservations={handleRefresh} />
 
                     {/* Chart + Recent Movements */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
+                    <div className="inventory-dashboard-panels">
                         {/* Chart */}
-                        <div style={{ background: 'rgba(250, 250, 250, 0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 24px', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                        <div className="inventory-chart-card" style={{ background: 'rgba(250, 250, 250, 0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 24px', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
                                 <h2 style={{ color: '#1e293b', fontWeight: 700, fontSize: 16, margin: 0 }}>Stock por Referencia</h2>
-                                <div style={{ display: 'flex', gap: 8 }}>
+                                <div className="inventory-chart-controls" style={{ display: 'flex', gap: 8 }}>
                                     <input
                                         placeholder="Buscar referencia…"
                                         value={searchTerm}
@@ -376,20 +380,20 @@ export const Inventory = () => {
                         </div>
 
                         {/* Recent Movements */}
-                        <div style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 20px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                        <div className="inventory-recent-movements" style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 18, border: '1px solid rgba(15,23,42,0.07)', padding: '22px 20px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
                             <h2 style={{ color: '#1e293b', fontWeight: 700, fontSize: 15, margin: '0 0 16px' }}>Últimos Movimientos</h2>
                             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {(dashboardData?.ultimosMovimientos ?? []).map((mv: any) => (
-                                    <div key={mv.id} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 13px', borderLeft: `3px solid ${movTypeColor(mv.tipo_movimiento)}` }}>
+                                    <div key={mv.id} style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 13px', border: '1px solid rgba(15,23,42,0.06)', borderLeft: `3px solid ${movTypeColor(mv.tipo_movimiento)}` }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                                            <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mv.materiaPrima?.nombre_mp}</span>
+                                            <span style={{ color: '#334155', fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mv.materiaPrima?.nombre_mp}</span>
                                             <span style={{ color: Number(mv.cantidad) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
                                                 {Number(mv.cantidad) >= 0 ? '+' : ''}{fmtNum(mv.cantidad)}
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, marginTop: 4 }}>
                                             <span style={{ color: movTypeColor(mv.tipo_movimiento), fontSize: 11, fontWeight: 600 }}>{mv.tipo_movimiento}</span>
-                                            <span style={{ color: '#475569', fontSize: 11 }}>{fmtDate(mv.fecha_hora)}</span>
+                                            <span style={{ color: '#64748b', fontSize: 11 }}>{fmtDate(mv.fecha_hora)}</span>
                                         </div>
                                     </div>
                                 ))}
@@ -428,8 +432,8 @@ export const Inventory = () => {
                     </div>
 
                     {/* Table */}
-                    <div style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 16, border: '1px solid rgba(15,23,42,0.07)', overflow: 'hidden', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
-                        <div style={{ overflowX: 'auto' }}>
+                    <div className="inventory-responsive-table" style={{ background: 'rgba(255,255,255,0.72)', borderRadius: 16, border: '1px solid rgba(15,23,42,0.07)', overflow: 'hidden', boxShadow: '0 8px 30px rgba(15,23,42,0.04)' }}>
+                        <div className="inventory-desktop-table" style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -484,8 +488,41 @@ export const Inventory = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                        <div className="inventory-desktop-table" style={{ padding: '12px 16px', borderTop: '1px solid rgba(15,23,42,0.06)', color: '#475569', fontSize: 13 }}>
                             {filteredMaterials.length} de {materials.length} referencias
+                        </div>
+                        <div className="inventory-mobile-cards" aria-live="polite">
+                            {loading ? (
+                                <div className="inventory-mobile-card">Cargando materiales…</div>
+                            ) : filteredMaterials.length === 0 ? (
+                                <div className="inventory-mobile-empty">Sin materiales que coincidan con la búsqueda</div>
+                            ) : filteredMaterials.map(mat => {
+                                const disp = Number(mat.stock_actual) - Number(mat.stock_reservado);
+                                const st = statusInfo(mat);
+                                return (
+                                    <article key={mat.id} className="inventory-mobile-card">
+                                        <div className="inventory-mobile-card-heading">
+                                            <div>
+                                                <p className="inventory-mobile-eyebrow">{mat.sku_mp} · {mat.categoria_mp}</p>
+                                                <h3>{mat.nombre_mp}</h3>
+                                            </div>
+                                            <span className="inventory-status-badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                                        </div>
+                                        <div className="inventory-mobile-data-grid">
+                                            <div><span>Stock total</span><strong>{fmtNum(mat.stock_actual)} {mat.unidad_medida_stock}</strong></div>
+                                            <div><span>Reservado</span><strong>{fmtNum(mat.stock_reservado)} {mat.unidad_medida_stock}</strong></div>
+                                            <div><span>Disponible</span><strong style={{ color: disp <= 0 ? '#dc2626' : '#059669' }}>{fmtNum(disp)} {mat.unidad_medida_stock}</strong></div>
+                                            <div><span>Mínimo</span><strong>{fmtNum(mat.punto_reorden)} {mat.unidad_medida_stock}</strong></div>
+                                        </div>
+                                        <div className="inventory-mobile-actions">
+                                            <button onClick={() => openDetail(mat)} title="Ver detalle" aria-label={`Ver detalle de ${mat.nombre_mp}`}><Eye size={16} /><span>Detalle</span></button>
+                                            <button onClick={() => { setSelectedMaterial(mat); setShowAddModal(true); }} title="Agregar stock" aria-label={`Agregar stock a ${mat.nombre_mp}`}><ArrowUpCircle size={16} /><span>Entrada</span></button>
+                                            <button onClick={() => openEditMaterial(mat)} title="Editar" aria-label={`Editar ${mat.nombre_mp}`}><Edit3 size={16} /><span>Editar</span></button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                            <div className="inventory-mobile-count">{filteredMaterials.length} de {materials.length} referencias</div>
                         </div>
                     </div>
                 </div>
@@ -509,8 +546,8 @@ export const Inventory = () => {
                         </button>
                     </div>
 
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                        <div style={{ overflowX: 'auto' }}>
+                    <div className="inventory-responsive-table inventory-dark-surface" style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div className="inventory-desktop-table" style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -532,7 +569,7 @@ export const Inventory = () => {
                                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                         >
                                             <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(mv.fecha_hora)}</td>
-                                            <td style={{ padding: '11px 14px', color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{mv.materiaPrima?.nombre_mp}</td>
+                                            <td style={{ padding: '11px 14px', color: '#0c0e0f', fontSize: 13, fontWeight: 600 }}>{mv.materiaPrima?.nombre_mp}</td>
                                             <td style={{ padding: '11px 14px' }}>
                                                 <span style={{ padding: '3px 9px', borderRadius: 7, background: `${movTypeColor(mv.tipo_movimiento)}18`, color: movTypeColor(mv.tipo_movimiento), fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{mv.tipo_movimiento}</span>
                                             </td>
@@ -549,8 +586,36 @@ export const Inventory = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                        <div className="inventory-desktop-table" style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
                             {filteredMovements.length} movimiento{filteredMovements.length !== 1 ? 's' : ''}
+                        </div>
+                        <div className="inventory-mobile-cards" aria-live="polite">
+                            {movementsLoading ? (
+                                <div className="inventory-mobile-card">Cargando movimientos…</div>
+                            ) : filteredMovements.length === 0 ? (
+                                <div className="inventory-mobile-empty">Sin movimientos</div>
+                            ) : filteredMovements.map(mv => (
+                                <article key={mv.id} className="inventory-mobile-card">
+                                    <div className="inventory-mobile-card-heading">
+                                        <div>
+                                            <p className="inventory-mobile-eyebrow">{fmtDate(mv.fecha_hora)}</p>
+                                            <h3>{mv.materiaPrima?.nombre_mp || 'Materia prima'}</h3>
+                                        </div>
+                                        <strong style={{ color: Number(mv.cantidad) >= 0 ? '#059669' : '#dc2626', whiteSpace: 'nowrap' }}>
+                                            {Number(mv.cantidad) >= 0 ? '+' : ''}{fmtNum(mv.cantidad)}
+                                        </strong>
+                                    </div>
+                                    <div className="inventory-mobile-data-grid">
+                                        <div><span>Movimiento</span><strong><span className="inventory-status-badge" style={{ background: `${movTypeColor(mv.tipo_movimiento)}18`, color: movTypeColor(mv.tipo_movimiento) }}>{mv.tipo_movimiento}</span></strong></div>
+                                        <div><span>Stock anterior</span><strong>{mv.stock_anterior != null ? fmtNum(mv.stock_anterior) : '—'}</strong></div>
+                                        <div><span>Stock posterior</span><strong>{mv.stock_posterior != null ? fmtNum(mv.stock_posterior) : '—'}</strong></div>
+                                        <div><span>OT / Referencia</span><strong>{mv.ordenTrabajo?.numero_ot || mv.referencia_id || '—'}</strong></div>
+                                        <div><span>Usuario</span><strong>{mv.usuario_nombre || '—'}</strong></div>
+                                        <div className="inventory-mobile-full-row"><span>Observación</span><strong>{mv.observacion || '—'}</strong></div>
+                                    </div>
+                                </article>
+                            ))}
+                            <div className="inventory-mobile-count">{filteredMovements.length} movimiento{filteredMovements.length !== 1 ? 's' : ''}</div>
                         </div>
                     </div>
                 </div>
@@ -559,7 +624,7 @@ export const Inventory = () => {
             {/* ── RESERVAS TAB ───────────────────────────────────────────────── */}
             {activeTab === 'reservas' && (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
                             Material actualmente retenido en órdenes de producción activas
                         </p>
@@ -567,8 +632,8 @@ export const Inventory = () => {
                             <RefreshCw size={14} /> Actualizar
                         </button>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                        <div style={{ overflowX: 'auto' }}>
+                    <div className="inventory-responsive-table inventory-dark-surface" style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div className="inventory-desktop-table" style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -605,11 +670,38 @@ export const Inventory = () => {
                                 </tbody>
                             </table>
                         </div>
-                        {reservations.length > 0 && (
-                            <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
+                        <div className="inventory-desktop-table">
+                            {reservations.length > 0 && (
+                                <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#475569', fontSize: 13 }}>
                                 {reservations.length} reserva{reservations.length !== 1 ? 's' : ''} activa{reservations.length !== 1 ? 's' : ''}
-                            </div>
-                        )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="inventory-mobile-cards" aria-live="polite">
+                            {reservationsLoading ? (
+                                <div className="inventory-mobile-card">Cargando reservas…</div>
+                            ) : reservations.length === 0 ? (
+                                <div className="inventory-mobile-empty"><Lock size={22} />Sin reservas activas — todo el material está disponible</div>
+                            ) : reservations.map(r => (
+                                <article key={r.id} className="inventory-mobile-card">
+                                    <div className="inventory-mobile-card-heading">
+                                        <div>
+                                            <p className="inventory-mobile-eyebrow">Orden de trabajo</p>
+                                            <h3>{r.ordenTrabajo?.numero_ot || '—'}</h3>
+                                        </div>
+                                        <span className="inventory-status-badge inventory-status-warning">{r.ordenTrabajo?.estado_ot || 'Estado sin definir'}</span>
+                                    </div>
+                                    <p className="inventory-mobile-material-name">{r.materiaPrima?.nombre_mp || 'Materia prima'}</p>
+                                    <div className="inventory-mobile-data-grid">
+                                        <div><span>Cliente</span><strong>{r.ordenTrabajo?.cliente || '—'}</strong></div>
+                                        <div><span>Producto</span><strong>{r.ordenTrabajo?.producto?.nombre_producto || '—'}</strong></div>
+                                        <div><span>Cantidad reservada</span><strong className="inventory-value-warning">{fmtNum(r.cantidad)} {r.materiaPrima?.unidad_medida_stock || ''}</strong></div>
+                                        <div><span>Fecha reserva</span><strong>{fmtDate(r.fecha_hora)}</strong></div>
+                                    </div>
+                                </article>
+                            ))}
+                            {reservations.length > 0 && <div className="inventory-mobile-count">{reservations.length} reserva{reservations.length !== 1 ? 's' : ''} activa{reservations.length !== 1 ? 's' : ''}</div>}
+                        </div>
                     </div>
                 </div>
             )}
@@ -627,8 +719,8 @@ export const Inventory = () => {
                             </p>
                         </div>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                        <div style={{ overflowX: 'auto' }}>
+                    <div className="inventory-responsive-table inventory-dark-surface" style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                        <div className="inventory-desktop-table" style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -686,6 +778,41 @@ export const Inventory = () => {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="inventory-mobile-cards" aria-live="polite">
+                            {auditLoading ? (
+                                <div className="inventory-mobile-card">Cargando auditoría…</div>
+                            ) : auditData.length === 0 ? (
+                                <div className="inventory-mobile-empty"><CheckSquare size={22} />Sin OTs inconsistentes — el inventario histórico está correcto</div>
+                            ) : auditData.map((ot: any) => (
+                                <article key={ot.id} className="inventory-mobile-card">
+                                    <div className="inventory-mobile-card-heading">
+                                        <div>
+                                            <p className="inventory-mobile-eyebrow">Orden de trabajo</p>
+                                            <h3>{ot.numero_ot}</h3>
+                                        </div>
+                                        <span className="inventory-status-badge inventory-status-success">{ot.estado_ot}</span>
+                                    </div>
+                                    <div className="inventory-mobile-data-grid">
+                                        <div><span>Tipo de orden</span><strong>{ot.tipo_orden || '—'}</strong></div>
+                                        <div><span>Cliente</span><strong>{ot.cliente || '—'}</strong></div>
+                                        <div><span>Fecha cierre</span><strong>{ot.fecha_fin_real ? fmtDate(ot.fecha_fin_real) : '—'}</strong></div>
+                                        <div><span>Materiales consumidos</span><strong className={ot.materiales_consumidos ? 'inventory-value-success' : 'inventory-value-danger'}>{ot.materiales_consumidos ? 'Sí' : 'No'}</strong></div>
+                                        <div><span>Materiales requeridos</span><strong>{ot.materialesRequeridos?.length ?? '—'} material(es)</strong></div>
+                                    </div>
+                                    {!ot.materiales_consumidos && (
+                                        <button
+                                            className="inventory-mobile-primary-action"
+                                            onClick={() => handleReconcile(ot.id)}
+                                            disabled={reconcilingId === ot.id}
+                                            title={`Reconciliar OT ${ot.numero_ot}`}
+                                        >
+                                            <RotateCcw size={15} />
+                                            {reconcilingId === ot.id ? 'Reconciliando…' : 'Reconciliar'}
+                                        </button>
+                                    )}
+                                </article>
+                            ))}
                         </div>
                     </div>
                 </div>

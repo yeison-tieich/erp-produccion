@@ -54,31 +54,36 @@ export const createOrder = async (req: Request, res: Response) => {
             if (existeOC) throw new Error('Ya existe una orden con ese número de orden de compra para este cliente');
         }
 
-        // Validar stock de materiales para producción en serie
-            if (tipo_orden !== 'PROYECTO_ESPECIAL' && prodIdNum) {
-                const producto = await prisma.producto.findUnique({
-                    where: { id: prodIdNum },
-                    include: { listaMateriales: { include: { materiaPrima: true } } }
-                });
-                if (!producto) throw new Error('Producto no encontrado');
-                
-                for (const item of producto.listaMateriales) {
-                    let cantidadAValidar = Number(item.cantidad_requerida) * cantidadNum;
-                    
-                    // Si el producto tiene piezas_lamina_4x8 definido, calcular láminas
-                    if (producto.piezas_lamina_4x8) {
-                        const piezasPorLamina = Number(producto.piezas_lamina_4x8);
-                        if (piezasPorLamina > 0) {
-                            cantidadAValidar = Math.ceil(cantidadNum / piezasPorLamina);
-                        }
-                    }
-                    
-                    const stockDisponible = Number(item.materiaPrima.stock_actual) - Number(item.materiaPrima.stock_reservado);
-                    if (stockDisponible < cantidadAValidar) {
-                        throw new Error(`Stock insuficiente para ${item.materiaPrima.nombre_mp}: requiere ${cantidadAValidar}, disponible ${stockDisponible}`);
+        // Validar disponibilidad sin bloquear la creación de la OT.
+        // El sistema reserva lo disponible y registra el faltante como pendiente de abastecimiento.
+        const materialAlerts: string[] = [];
+        if (tipo_orden !== 'PROYECTO_ESPECIAL' && prodIdNum) {
+            const producto = await prisma.producto.findUnique({
+                where: { id: prodIdNum },
+                include: { listaMateriales: { include: { materiaPrima: true } } }
+            });
+            if (!producto) throw new Error('Producto no encontrado');
+
+            for (const item of producto.listaMateriales) {
+                let cantidadAValidar = Number(item.cantidad_requerida) * cantidadNum;
+
+                if (producto.piezas_lamina_4x8) {
+                    const piezasPorLamina = Number(producto.piezas_lamina_4x8);
+                    if (piezasPorLamina > 0) {
+                        cantidadAValidar = Math.ceil(cantidadNum / piezasPorLamina);
                     }
                 }
+
+                const stockDisponible = Math.max(0, Number(item.materiaPrima.stock_actual) - Number(item.materiaPrima.stock_reservado));
+                const faltante = Math.max(0, cantidadAValidar - stockDisponible);
+
+                if (faltante > 0) {
+                    materialAlerts.push(
+                        `${item.materiaPrima.nombre_mp}: requiere ${cantidadAValidar}, disponible ${stockDisponible}, faltante ${faltante}`
+                    );
+                }
             }
+        }
 
             const result = await prisma.$transaction(async (tx) => {
             // 2. Generar número de OT único usando timestamp + random
@@ -214,7 +219,7 @@ export const createOrder = async (req: Request, res: Response) => {
             return newOrder;
         });
 
-            res.json(result);
+            res.json({ ...result, materialAlerts });
     } catch (error) {
         console.error(error);
         const msg = error instanceof Error ? error.message : 'Error creating order';

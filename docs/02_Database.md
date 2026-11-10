@@ -1,60 +1,102 @@
 # 02. Base de Datos - Modelo de Datos (Prisma)
 
-El sistema utiliza **Supabase** como motor de base de datos principal, gestionado a través de **Prisma ORM**. A continuación se detallan los modelos principales y sus relaciones.
+La base de datos del sistema se gestiona con PostgreSQL usando Prisma como ORM. El modelo refleja la estructura de producción industrial, con entidades para clientes, productos, inventario, órdenes de trabajo, personal, mantenimiento, proyectos especiales, calidad y configuración del negocio.
 
-## Modelos Principales
+## Configuración técnica
 
-### 1. Usuarios y Autenticación (`Usuario`)
-- Almacena información de acceso y roles.
-- **Roles**: `Administrador`, `Supervisor`, `Operario`.
+El datasource del proyecto se define en `backend/prisma/schema.prisma` como:
 
-### 2. Inventario y Materiales (`MateriaPrima`, `MovimientoInventarioMP`)
-- Gestión de SKUs de materia prima (láminas, perfiles, etc.).
-- Control de stock actual, reservado y punto de reorden.
-- Seguimiento de movimientos (Ingresos, Consumos, Ajustes).
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
 
-### 3. Producción y Órdenes (`Producto`, `OrdenTrabajo`, `TareaProduccion`)
-- **Producto**: Definición técnica de piezas recurrentes, incluyendo BOM (Lista de Materiales) y rutas de fabricación.
-- **Orden de Trabajo (OT)**: Ejecución de producción en serie o proyectos especiales.
-- **Tarea de Producción**: Asignación de operaciones específicas de una OT a personal y máquinas.
+Esto significa que la base de datos principal del ERP es PostgreSQL, no SQLite. Las migraciones y los scripts deben respetar este motor.
 
-### 4. Proyectos Especiales (`ProyectoEspecial`, `FaseProyecto`, `PiezaProyecto`)
-- Modelo para trabajos no seriados (troqueles, moldes, reparaciones).
-- Seguimiento detallado por **fases** (Diseño, Fabricación, Ajuste, etc.).
-- Control de **piezas individuales** con sus propios planos y estados.
-- Registro de historial de cambios y notas técnicas.
+## Modelos principales
 
-### 5. Recursos: Personal y Máquinas (`Personal`, `Maquina`)
-- **Personal**: Datos de empleados, cargos, KPI de puntualidad y préstamos.
-- **Máquinas**: Registro de activos, estado (Activo, Mantenimiento, Inactivo) y carga de trabajo asignada.
+### 1. Usuarios y seguridad (`Usuario`)
+- `id`, `nombre`, `email`, `password_hash`, `rol`, `activo`
+- Relación opcional con `Personal`
+- Soporta permisos y configuración por usuario
+- Historial de cambios asociado a acciones del sistema
 
-### 6. Mantenimiento y Herramientas (`MantenimientoPreventivo`, `HerramientaConsumible`, `PrestamoHerramienta`)
-- Programación de mantenimientos preventivos.
-- Control de inventario de herramientas y consumibles.
-- Registro de préstamos activos y devueltos.
+### 2. Inventario y materiales (`MateriaPrima`)
+- SKU, nombre, categoría, unidades de medida
+- `stock_actual`, `stock_reservado`, `devoluciones`, `punto_reorden`
+- `densidad`, `peso_unitario`, `costo_unitario`
+- Movimientos de entrada/salida/ajuste a través de `MovimientoInventarioMP`
 
----
+### 3. Productos y BOM (`Producto`, `ListaMateriales`)
+- `sku_producto`, `nombre_producto`, `descripcion`, `cliente_id`
+- `stock_actual`, `stock_minimo`, `stock_maximo`, `precio_venta`
+- `fuerza_troquelado` (Ton), dimensiones, acabado y piezas obtenidas por formato de lámina
+- relación con `ListaMateriales` y `RutaFabricacion`
+- soporte de planos, imagen, medidas y proceso productivo
 
-## Relaciones Clave
-- **Producto -> ListaMateriales -> MateriaPrima**: Define qué materiales se necesitan para fabricar una pieza.
-- **OrdenTrabajo -> TareaProduccion -> Personal/Maquina**: Controla quién y en qué máquina se realiza cada operación.
-- **ProyectoEspecial -> FaseProyecto -> Personal/Maquina**: Similar a las tareas, pero estructurado para proyectos de larga duración.
-- **Personal -> PrestamoHerramienta <- HerramientaConsumible**: Trazabilidad del uso de herramientas en la planta.
+### 4. Producción y OT (`OrdenTrabajo`, `TareaProduccion`, `RutaFabricacion`)
+- OTs con número único, fechas, prioridad, cantidad, estado y entregas
+- relación con productos, cliente y tareas de producción
+- asignación de trabajo por máquina y personal
+- trazabilidad del proceso productivo y tiempos
 
----
+### 5. Personal y capacity (`Personal`, `RegistroTiempoLaboral`)
+- datos personales, cargo, área, KPI, costo por hora, productividad
+- tiempos laborales, dotación, permisos, asistencia y costo asociado
+- soporte de operaciones y asignación de tareas
 
-## Persistencia Local (Mobile)
+### 6. Máquinas y mantenimiento (`Maquina`, `MantenimientoPreventivo`)
+- activos de producción, estado, mantenimiento y carga de trabajo
+- programación de mantenimientos preventivos
+- correlación con tareas y producción
 
-Para garantizar la funcionalidad sin conexión, la aplicación móvil mantiene un espejo local de las tablas críticas.
+### 7. Proyectos especiales (`ProyectoEspecial`, `FaseProyecto`, `PiezaProyecto`)
+- trabajo no seriado, custom o de ingeniería
+- seguimiento por fases, piezas y avance operativo
+- documentación técnica y trazabilidad de entregas
 
-### Tablas Locales (Capacitor SQLite)
-- **MateriaPrima**: Copia del inventario para consultas rápidas y validaciones.
-- **MovimientoInventarioMP**: Registra ingresos y consumos realizados en campo.
-- **OrdenTrabajo**: Permite visualizar y gestionar OTs asignadas.
-- **Tareas**: Permite iniciar/finalizar operaciones de manufactura offline.
-- **SyncQueue**: Tabla técnica que almacena las operaciones pendientes de subir al servidor (`INSERT`, `UPDATE`, `DELETE`).
+### 8. Calidad (`InspeccionCalidad`, `NoConformidad`, `RiesgoCalidad`, `ReclamoCliente`)
+- inspecciones por producto o proyecto
+- no conformidades y acciones correctivas
+- evaluación de riesgos y reclamos del cliente
 
----
+### 9. Herramientas, préstamos y bienes de taller (`HerramientaConsumible`, `PrestamoHerramienta`, `DotacionEPP`)
+- catálogo de herramientas, consumibles y prestamos
+- control de disponibilidad y devoluciones
+- dotación personal y seguimiento de EPP
 
-## Configuración del Sistema (`Configuracion`)
-- Almacena variables globales como la densidad del acero por defecto y horas de turno.
+### 10. Configuración del negocio (`Configuracion`, `ConfiguracionUsuario`)
+- parámetros globales: densidades, horas de turno, ajustes por empresa
+- configuración del sistema y personalización de la operativa
+
+## Relaciones clave
+
+- `Producto` → `ListaMateriales` → `MateriaPrima`
+- `Producto` → `RutaFabricacion` → `TareaProduccion`
+- `OrdenTrabajo` → `TareaProduccion` → `Personal` / `Maquina`
+- `Cliente` → `Producto` / `Pedido` / `ReclamoCliente`
+- `Personal` → `PrestamoHerramienta` / `RegistroTiempoLaboral`
+- `Maquina` → `TareaProduccion` / `MantenimientoPreventivo`
+- `ProyectoEspecial` → `FaseProyecto` → `PiezaProyecto`
+
+## Migraciones y evolución del esquema
+
+El repositorio usa Prisma Migrations para versionar la base de datos. Es importante:
+
+- no crear cambios de esquema directamente en producción sin revisión
+- validar el estado del esquema en staging antes de deploy
+- hacer backup antes de migraciones de producción
+- respetar el historial de migraciones en lugar de forzar `db push` en entorno operativo
+
+## Soporte de sincronización móvil
+
+El frontend móvil o web nativo puede usar almacenamiento local con SQLite para permitir trabajo offline. Esto no reemplaza el PostgreSQL de backend, sino que complementa la administración local de cambios en la app antes de enviarlos al servidor.
+
+## Referencias del proyecto
+
+- `backend/prisma/schema.prisma`
+- `backend/src/routes/*.routes.ts`
+- `backend/src/server.ts`
+- `docs/07_Despliegue_Servidor_Propio.md`

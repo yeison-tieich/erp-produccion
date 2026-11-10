@@ -15,7 +15,8 @@ Nginx ───────────────► frontend/dist (React/Vite
    ▼
 Backend Express/Node.js (puerto interno 3000)
    ├── PostgreSQL (Prisma)
-   └── Cloudinary (archivos e imágenes subidos)
+   ├── backend/uploads/products (imágenes de productos)
+   └── Cloudinary (otros archivos subidos)
 ```
 
 El frontend y el backend pueden compartir un dominio. Nginx sirve la web y envía las rutas `/api/` al backend. PostgreSQL debe aceptar conexiones solo desde el servidor de aplicación o la red privada.
@@ -59,7 +60,7 @@ El frontend y el backend pueden compartir un dominio. Nginx sirve la web y enví
 - Prisma 5 y `@prisma/client` para PostgreSQL.
 - `jsonwebtoken` y `bcryptjs` para tokens y contraseñas.
 - `cors`, `dotenv`, `multer` para API, configuración, CORS y recepción de archivos.
-- `cloudinary` para archivos subidos (fotos, planos, remisiones y documentos).
+- `cloudinary` para planos PDF, remisiones y otros archivos. Las fotos de productos se guardan en `backend/uploads/products`.
 - `pdfkit`, `xlsx`, `axios` y `zod` para generación PDF, hojas de cálculo, HTTP y validación.
 - Herramientas de desarrollo: `typescript`, `ts-node` y `nodemon`.
 
@@ -79,7 +80,7 @@ Las versiones exactas instaladas están fijadas por `backend/package-lock.json` 
 - Node.js LTS compatible con las dependencias (se recomienda Node 20 LTS) y npm.
 - PostgreSQL compatible con Prisma 5.
 - Nginx o un proxy inverso equivalente; dominio y certificado TLS para acceso externo.
-- Espacio de disco para código, logs y respaldos. Cloudinary almacena los archivos subidos por la aplicación.
+- Espacio de disco persistente para código, logs, respaldos y fotos de productos; Cloudinary almacena los demás archivos subidos por la aplicación.
 - Reglas de firewall: publicar únicamente HTTP/HTTPS (80/443) y SSH administrado; mantener privado el puerto de PostgreSQL. El puerto 3000 no necesita exponerse públicamente.
 
 ## 5. Variables de entorno
@@ -99,7 +100,7 @@ CLOUDINARY_API_SECRET="..."
 
 - `DATABASE_URL`, `JWT_SECRET` y `PORT` son consumidas por el backend. `PORT` usa 3000 por defecto.
 - `FRONTEND_URL` añade el origen web permitido por CORS. El código también contiene algunos orígenes antiguos; para producción, especificar el dominio real y comprobarlo en `backend/src/server.ts`.
-- Las tres variables de Cloudinary las consume el servicio de medios. Configurar una cuenta Cloudinary para que las funciones de carga puedan operar.
+- Las variables de Cloudinary siguen siendo necesarias para remisiones y otras cargas que usan ese servicio. Las imágenes y planos PDF de productos se guardan en `backend/uploads/products` y no requieren Cloudinary.
 - Generar `JWT_SECRET` aleatoriamente, mantenerlo privado y no reutilizar el valor de desarrollo. El fallback presente en el código no es aceptable como configuración de producción.
 - Codificar caracteres especiales de usuario/clave de PostgreSQL en la URL de conexión.
 
@@ -111,13 +112,31 @@ VITE_API_URL=https://erp.ejemplo.com
 
 Si se separa el API en otro subdominio, por ejemplo `https://api.ejemplo.com`, usar esa URL y establecer exactamente el origen web en `FRONTEND_URL`. Las variables `VITE_*` quedan incorporadas en los archivos públicos del build: nunca poner secretos en ellas. Esta compilación no lee las variables del servidor una vez publicada.
 
+## Migrar fotos existentes de productos
+
+Las fotos nuevas se guardan en `backend/uploads/products`. Para copiar las fotos actuales de Cloudinary al servidor:
+
+1. Hacer un respaldo de PostgreSQL y del directorio `backend/uploads/products`.
+2. Ejecutar el comando desde `backend/` en el servidor que tenga acceso a la base de datos y a la carpeta de cargas:
+
+   ```bash
+   npm run migrate:product-images
+   ```
+
+3. Revisar el resumen y los errores; el proceso deja intactos los registros que no pudo migrar para poder volver a intentarlo.
+4. Comprobar imágenes de productos desde la aplicación y conservar los respaldos hasta validar.
+
+El comando solo migra las imágenes de productos almacenadas en Cloudinary. No borra los archivos originales de Cloudinary y no migra planos PDF, remisiones ni cargas de otros módulos.
+
+Los planos PDF nuevos se cargan desde el formulario de creación o edición de productos. Se validan como PDF, aceptan hasta 24 MB y se guardan en `backend/uploads/products/plans`. Las referencias quedan en `Producto.plano_pdf_url` como `/uploads/products/plans/<nombre>.pdf`. El endpoint ya no envía esos planos a Cloudinary. Los PDF antiguos que todavía tengan una URL absoluta de Cloudinary siguen abriendo; al reemplazar/subir un PDF nuevo, la referencia pasa al archivo local.
+
 ## 6. Preparación de base de datos y migraciones
 
 1. Crear una base de datos y un usuario PostgreSQL dedicados a la aplicación, con permisos únicamente sobre esa base.
 2. Configurar `DATABASE_URL` y comprobar conectividad desde el servidor de aplicación.
 3. Antes de aplicar cambios, hacer backup y validar la versión del esquema en un entorno de pruebas.
 
-**Bloqueo importante para una instalación nueva:** el directorio `backend/prisma/migrations/` contiene actualmente una sola migración tardía que modifica tablas existentes; no es una migración inicial que cree todo el modelo. Por tanto, `npx prisma migrate deploy` por sí solo no inicializa una base vacía con todas las tablas. Revisar y completar formalmente el historial de migraciones antes de desplegar sobre una base nueva.
+**Bloqueo importante para una instalación nueva:** el directorio `backend/prisma/migrations/` contiene migraciones incrementales que modifican tablas existentes; no es una migración inicial que cree todo el modelo. Por tanto, `npx prisma migrate deploy` por sí solo no inicializa una base vacía con todas las tablas. Revisar y completar formalmente el historial de migraciones antes de desplegar sobre una base nueva.
 
 No ejecutar `prisma db push` automáticamente en producción: sincroniza el esquema sin aportar el historial normal de migraciones. Si el despliegue debe partir de una base creada previamente, confirmar que su esquema y datos corresponden a esta revisión, respaldar primero y aplicar solo los cambios aprobados. Las migraciones de producción deben quedar versionadas y probadas.
 
@@ -217,9 +236,9 @@ La aplicación sirve también recursos en `/public`, `/images` y `/uploads`; si 
 
 - Mantener `.env`, credenciales de PostgreSQL y llaves de Cloudinary fuera del repositorio y de los logs.
 - Usar HTTPS para web y API. El JWT protege las rutas del API; restringir la administración y mantener secretos rotables.
-- Las cargas de archivos se reciben en memoria y se envían a Cloudinary. Asegurar límites de tamaño adecuados en Nginx y Cloudinary; el ejemplo fija 25 MB como límite del proxy.
+- Las imágenes y planos PDF de productos se escriben en `backend/uploads/products` y se sirven desde `/uploads`; montar el directorio en almacenamiento persistente y respaldarlo. El Compose del repositorio monta `./backend/uploads:/app/uploads`. En una instalación propia, conservar el equivalente. Otras cargas (por ejemplo, remisiones) pueden seguir usando Cloudinary. Nginx permite como máximo 25 MB por petición; los PDF de producto se limitan a 24 MB.
 - Respaldar PostgreSQL con una política periódica y probar restauraciones. Guardar backups cifrados fuera del mismo disco/servidor.
-- Los datos subidos a Cloudinary tienen ciclo de vida separado de PostgreSQL; proteger y revisar la cuenta, cuotas y backups/retención.
+- Las imágenes y planos PDF de productos se almacenan junto al backend: incluir todo `backend/uploads` en respaldos y preservar sus archivos/permisos al cambiar o reinstalar el servidor. Los demás datos subidos a Cloudinary mantienen ciclo de vida separado de PostgreSQL; proteger y revisar la cuenta, cuotas y backups/retención.
 - Revisar `backend/uploads`, `backend/public` e `Inventario Producto_Images` si se conservan recursos locales o estáticos; preservar permisos y copiarlos al cambiar de servidor. La carpeta de imágenes del inventario se expone bajo `/images`.
 - Centralizar logs del servicio, vigilar espacio libre, disponibilidad del API, PostgreSQL y uso de Cloudinary.
 
@@ -228,7 +247,8 @@ La aplicación sirve también recursos en `/public`, `/images` y `/uploads`; si 
 - [ ] DNS apunta al servidor y TLS está activo.
 - [ ] PostgreSQL está disponible solo en red privada y se confirmó la estrategia de migraciones.
 - [ ] `backend/.env` tiene secretos propios del entorno; `JWT_SECRET` no usa el fallback.
-- [ ] Credenciales de Cloudinary son válidas y se probó una carga real.
+- [ ] El directorio persistente `backend/uploads` (incluidos productos y planos PDF) tiene permisos de escritura para el usuario del backend y está incluido en respaldos.
+- [ ] Credenciales de Cloudinary son válidas y se probaron las cargas que todavía lo requieren.
 - [ ] `VITE_API_URL` apunta a la URL pública correcta y se reconstruyó el frontend.
 - [ ] `FRONTEND_URL` coincide con el origen real de la web.
 - [ ] El proceso backend arranca automáticamente y Nginx no publica directamente el puerto 3000.

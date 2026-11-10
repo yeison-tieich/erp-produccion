@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum CategoriaMatriz {
+  RIESGO
+  OPORTUNIDAD
+}
+
+enum EstadoControlCambio {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum CategoriaCostoCalidad {
+  FALLA_INTERNA
+  FALLA_EXTERNA
+  PREVENCION_EVALUACION
+}
+
 model Usuario {
   id            Int                   @id @default(autoincrement())
   nombre        String
@@ -20,6 +37,10 @@ model Usuario {
   configuracion ConfiguracionUsuario?
   historial     HistorialCambios[]
   personal      Personal?             @relation(fields: [personal_id], references: [id])
+  aceptacionesEticas AceptacionEtica[]
+  cambiosSolicitados ControlCambioIngenieria[] @relation("CambioSolicitante")
+  cambiosAprobados ControlCambioIngenieria[] @relation("CambioAprobador")
+  compromisosDireccion CompromisoDireccionCalidad[]
 }
 
 model MateriaPrima {
@@ -72,6 +93,7 @@ model Producto {
   stock_minimo      Int?
   stock_maximo      Int?
   ancho_tira        Decimal?
+  fuerza_troquelado Float?
   medidas_pieza     String?
   piezas_lamina_4x8 String?
   piezas_lamina_2x1 String?
@@ -92,6 +114,7 @@ model Producto {
   noConformidades   NoConformidad[]
   reclamos          ReclamoCliente[]
   riesgos           RiesgoCalidad[]
+  cambiosIngenieria ControlCambioIngenieria[]
 }
 
 model ProductoMaquinaProceso {
@@ -108,13 +131,26 @@ model ProductoMaquinaProceso {
 }
 
 model MovimientoProducto {
-  id              Int      @id @default(autoincrement())
-  producto_id     Int
-  fecha           DateTime @default(now())
-  tipo_movimiento String
-  cantidad        Int
-  referencia      String?
-  producto        Producto @relation(fields: [producto_id], references: [id])
+  id               Int              @id @default(autoincrement())
+  producto_id      Int
+  fecha            DateTime         @default(now())
+  tipo_movimiento  String
+  cantidad         Int
+  referencia       String?
+  orden_trabajo_id Int?
+  tarea_id         Int?
+  idempotency_key  String?          @unique
+  stock_anterior   Int?
+  stock_posterior  Int?
+  usuario          String?
+  observacion      String?
+  producto         Producto         @relation(fields: [producto_id], references: [id])
+  ordenTrabajo     OrdenTrabajo?    @relation(fields: [orden_trabajo_id], references: [id], onDelete: SetNull)
+  tarea            TareaProduccion? @relation(fields: [tarea_id], references: [id], onDelete: SetNull)
+
+  @@index([orden_trabajo_id])
+  @@index([tarea_id])
+  @@index([producto_id])
 }
 
 model ListaMateriales {
@@ -124,6 +160,7 @@ model ListaMateriales {
   cantidad_requerida Decimal
   materiaPrima       MateriaPrima @relation(fields: [materia_prima_id], references: [id])
   producto           Producto     @relation(fields: [producto_id], references: [id])
+  cambiosIngenieria  ControlCambioIngenieria[]
 }
 
 model RutaFabricacion {
@@ -137,6 +174,7 @@ model RutaFabricacion {
   activo                   Boolean           @default(true)
   producto                 Producto          @relation(fields: [producto_id], references: [id])
   tareas                   TareaProduccion[]
+  cambiosIngenieria        ControlCambioIngenieria[]
 }
 
 model Personal {
@@ -245,6 +283,7 @@ model OrdenTrabajo {
   inspecciones            InspeccionCalidad[]
   noConformidades         NoConformidad[]
   reclamos                ReclamoCliente[]
+  movimientosProducto     MovimientoProducto[]
 
   @@index([proyecto_especial_id])
 }
@@ -273,10 +312,16 @@ model TareaProduccion {
   prioridad           String           @default("MEDIA")
   tiempo_estimado_min Int?             @default(0)
   tiempo_real_min     Int?             @default(0)
+  usuario_ultima_edicion String?
+  fecha_ultima_edicion DateTime?
+  cantidad_ingresada_stock Int          @default(0)
+  ingreso_stock_procesado  Boolean      @default(false)
+  fecha_ingreso_stock      DateTime?
   maquina             Maquina?         @relation(fields: [maquina_id], references: [id])
   ordenTrabajo        OrdenTrabajo     @relation(fields: [orden_trabajo_id], references: [id])
   personal            Personal?        @relation(fields: [personal_id], references: [id])
   rutaFabricacion     RutaFabricacion? @relation(fields: [ruta_fabricacion_id], references: [id])
+  movimientosProducto MovimientoProducto[]
 }
 
 model MovimientoInventarioMP {
@@ -604,7 +649,7 @@ model Alerta {
 
 model Configuracion {
   id                     Int      @id @default(autoincrement())
-  max_proyectos_activos  Int      @default(10)
+  max_proyectos_activos  Int      @default(20)
   nombre_empresa         String?  @default("MI EMPRESA SAS")
   nit_empresa            String?  @default("000.000.000-0")
   direccion_empresa      String?
@@ -706,6 +751,10 @@ model Proveedor {
   email          String?
   direccion      String?
   calificacion   Decimal?                @default(100)
+  riesgo_climatico_score Int?
+  evaluacion_ambiental String?
+  plan_continuidad_climatica String?
+  certificaciones_sostenibilidad String?
   activo         Boolean                 @default(true)
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
@@ -806,6 +855,7 @@ model MedicionInspeccion {
   tolerancia_min        Decimal?
   tolerancia_max        Decimal?
   instrumento           String?
+  instrumento_id        Int?
   valores_medidos       String                 // JSON Array
   promedio              Decimal?
   minimo                Decimal?
@@ -816,6 +866,24 @@ model MedicionInspeccion {
   observacion           String?
   caracteristica        CaracteristicaControl? @relation(fields: [caracteristica_id], references: [id])
   inspeccion            InspeccionCalidad      @relation(fields: [inspeccion_id], references: [id], onDelete: Cascade)
+  instrumentoMedicion   InstrumentoMedicion?   @relation(fields: [instrumento_id], references: [id], onDelete: Restrict)
+}
+
+model InstrumentoMedicion {
+  id                       Int                    @id @default(autoincrement())
+  codigo                   String                 @unique
+  nombre                   String
+  tipo                     String
+  fabricante               String?
+  numero_serie             String?
+  certificado_calibracion  String?
+  fecha_ultima_calibracion DateTime?
+  fecha_vencimiento        DateTime
+  activo                   Boolean                @default(true)
+  observaciones            String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  mediciones               MedicionInspeccion[]
 }
 
 model NoConformidad {
@@ -854,6 +922,7 @@ model NoConformidad {
   producto                Producto?           @relation(fields: [producto_id], references: [id])
   proveedor               Proveedor?          @relation(fields: [proveedor_id], references: [id])
   reclamoCliente          ReclamoCliente?     @relation(fields: [reclamo_id], references: [id])
+  costosNoCalidad         CostoNoCalidad[]
 }
 
 model AnalisisCausaNC {
@@ -904,6 +973,7 @@ model RiesgoCalidad {
   id           Int        @id @default(autoincrement())
   codigo       String     @unique
   tipo         String     @default("RIESGO") // RIESGO, OPORTUNIDAD
+  categoria_matriz CategoriaMatriz @default(RIESGO)
   proceso      String
   descripcion  String
   causa        String?
@@ -911,6 +981,9 @@ model RiesgoCalidad {
   probabilidad Int        @default(1)
   impacto      Int        @default(1)
   nivel_riesgo Int        @default(1)
+  viabilidad   Int        @default(1)
+  beneficio    Int        @default(1)
+  nivel_oportunidad Int   @default(1)
   estrategia   String?
   plan_accion  String?
   personal_id  Int?
@@ -926,6 +999,88 @@ model RiesgoCalidad {
   responsable  Personal?  @relation(fields: [personal_id], references: [id])
   producto     Producto?  @relation(fields: [producto_id], references: [id])
   proveedor    Proveedor? @relation(fields: [proveedor_id], references: [id])
+}
+
+model ControlCambioIngenieria {
+  id                     Int                 @id @default(autoincrement())
+  codigo                 String              @unique
+  producto_id            Int
+  lista_materiales_id    Int?
+  ruta_fabricacion_id    Int?
+  motivo                 String
+  descripcion_cambio     String
+  usuario_solicitante_id Int
+  usuario_aprobador_id   Int?
+  estado                 EstadoControlCambio @default(PENDIENTE)
+  fecha_solicitud        DateTime            @default(now())
+  fecha_efectiva         DateTime?
+  comentarios_aprobacion String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  producto               Producto            @relation(fields: [producto_id], references: [id], onDelete: Restrict)
+  listaMateriales        ListaMateriales?     @relation(fields: [lista_materiales_id], references: [id], onDelete: Restrict)
+  rutaFabricacion        RutaFabricacion?     @relation(fields: [ruta_fabricacion_id], references: [id], onDelete: Restrict)
+  usuarioSolicitante     Usuario             @relation("CambioSolicitante", fields: [usuario_solicitante_id], references: [id], onDelete: Restrict)
+  usuarioAprobador       Usuario?            @relation("CambioAprobador", fields: [usuario_aprobador_id], references: [id], onDelete: Restrict)
+  @@index([estado, fecha_solicitud])
+  @@index([producto_id])
+}
+
+model CostoNoCalidad {
+  id                Int                   @id @default(autoincrement())
+  categoria         CategoriaCostoCalidad
+  descripcion       String
+  monto             Decimal               @db.Decimal(14, 2)
+  fecha             DateTime              @default(now())
+  origen            String?
+  numero_referencia String?
+  no_conformidad_id Int?
+  reclamo_id        Int?
+  creado_por        String
+  createdAt         DateTime              @default(now())
+  noConformidad     NoConformidad?        @relation(fields: [no_conformidad_id], references: [id], onDelete: Restrict)
+  reclamo           ReclamoCliente?        @relation(fields: [reclamo_id], references: [id], onDelete: Restrict)
+  @@index([categoria, fecha])
+  @@index([no_conformidad_id])
+  @@index([reclamo_id])
+}
+
+model AceptacionEtica {
+  id             Int      @id @default(autoincrement())
+  usuario_id     Int
+  version        String
+  aceptado_en    DateTime @default(now())
+  ip_origen      String?
+  evidencia_hash String?
+  usuario        Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  @@index([usuario_id, aceptado_en])
+}
+
+model EvaluacionContextoCalidad {
+  id                          Int      @id @default(autoincrement())
+  factor                      String
+  origen                      String
+  cambio_climatico_relevante  Boolean  @default(false)
+  impacto_cadena_suministro   String
+  impacto_sostenibilidad      String
+  respuesta_planificada       String
+  responsable                 String
+  fecha_revision              DateTime
+  creado_por                  String
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  @@index([fecha_revision])
+}
+
+model CompromisoDireccionCalidad {
+  id               Int      @id @default(autoincrement())
+  usuario_id       Int
+  version          String
+  compromiso       String
+  objetivos        String?
+  aprobado_en      DateTime @default(now())
+  usuario          Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  @@index([version, aprobado_en])
 }
 
 model ReclamoCliente {
@@ -946,6 +1101,7 @@ model ReclamoCliente {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   noConformidades     NoConformidad[]
+  costosNoCalidad     CostoNoCalidad[]
   cliente             Cliente         @relation(fields: [cliente_id], references: [id])
   ordenTrabajo        OrdenTrabajo?   @relation(fields: [orden_trabajo_id], references: [id])
   producto            Producto?       @relation(fields: [producto_id], references: [id])

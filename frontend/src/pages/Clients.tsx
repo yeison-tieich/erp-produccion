@@ -54,9 +54,16 @@ export const Clients = () => {
     const [ordersError, setOrdersError] = useState<string | null>(null);
     
     const [showEditModal, setShowEditModal] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
     const [showRatingModal, setShowRatingModal] = useState(false);
     const [selectedClientForRating, setSelectedClientForRating] = useState<Client | null>(null);
     const [tempRating, setTempRating] = useState(0);
+    const [newClientData, setNewClientData] = useState({
+        nombre: '',
+        contacto: '',
+        direccion: '',
+        calificacion: 3
+    });
     const [editData, setEditData] = useState({
         nombre: '',
         contacto: '',
@@ -179,6 +186,19 @@ export const Clients = () => {
         }
     };
 
+    const handleCreateClient = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            await axios.post(`${API_URL}/clients`, newClientData);
+            setShowCreateModal(false);
+            setNewClientData({ nombre: '', contacto: '', direccion: '', calificacion: 3 });
+            await fetchClients();
+            alert('Cliente creado con éxito');
+        } catch (error: any) {
+            alert(error.response?.data?.error || 'Error creando cliente');
+        }
+    };
+
     const handleEditClient = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedClient) return;
@@ -249,15 +269,24 @@ export const Clients = () => {
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4">
-                <Search className="text-gray-400 w-5 h-5 ml-2" />
-                <input
-                    type="text"
-                    placeholder="Buscar cliente por nombre..."
-                    className="flex-1 py-2 focus:outline-none text-lg font-medium"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 items-center">
+                <div className="flex items-center gap-4 flex-1 w-full">
+                    <Search className="text-gray-400 w-5 h-5 ml-2" />
+                    <input
+                        type="text"
+                        placeholder="Buscar cliente por nombre..."
+                        className="flex-1 py-2 focus:outline-none text-lg font-medium"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setShowCreateModal(true)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-brand-700 transition"
+                >
+                    <Plus className="w-4 h-4" /> Nuevo cliente
+                </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -405,6 +434,88 @@ export const Clients = () => {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Create Client Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-md w-full p-8">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-black text-gray-900">Nuevo Cliente</h2>
+                            <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X /></button>
+                        </div>
+
+                        <form onSubmit={handleCreateClient} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Nombre Comercial</label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-sm"
+                                    value={newClientData.nombre}
+                                    onChange={e => setNewClientData({ ...newClientData, nombre: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Contacto / Teléfono</label>
+                                <div className="relative">
+                                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        className="w-full pl-12 pr-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm"
+                                        value={newClientData.contacto}
+                                        onChange={e => setNewClientData({ ...newClientData, contacto: e.target.value })}
+                                        placeholder="Ej: +57 321..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Dirección Fiscal</label>
+                                <div className="relative">
+                                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        className="w-full pl-12 pr-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm"
+                                        value={newClientData.direccion}
+                                        onChange={e => setNewClientData({ ...newClientData, direccion: e.target.value })}
+                                        placeholder="Dirección completa"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Calificación inicial</label>
+                                <select
+                                    value={newClientData.calificacion}
+                                    onChange={e => setNewClientData({ ...newClientData, calificacion: Number(e.target.value) })}
+                                    className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-sm"
+                                >
+                                    {[1, 2, 3, 4, 5].map((value) => (
+                                        <option key={value} value={value}>{value} / 5</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCreateModal(false)}
+                                    className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-black text-sm transition hover:bg-gray-200"
+                                >
+                                    CANCELAR
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 bg-brand-600 text-white py-3 rounded-xl font-black text-sm shadow-md hover:bg-brand-700 transition"
+                                >
+                                    CREAR CLIENTE
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

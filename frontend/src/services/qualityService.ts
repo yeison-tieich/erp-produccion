@@ -21,6 +21,12 @@ export interface QualityDashboardData {
         reclamosAbiertos: number;
         devoluciones: number;
         costoNoCalidadTotal: number;
+        costosNoCalidadPorCategoria: {
+            FALLA_INTERNA: number;
+            FALLA_EXTERNA: number;
+            PREVENCION_EVALUACION: number;
+        };
+        costosNoCalidadTendencia: { categoria: string; monto: number; fecha: string }[];
     };
     graficos: {
         defectosPorMaquina: { name: string; count: number }[];
@@ -105,6 +111,7 @@ export interface InspectionMeasurement {
     tolerancia_min?: number;
     tolerancia_max?: number;
     instrumento?: string;
+    instrumento_id?: number;
     valores_medidos: string | number[];
     promedio?: number;
     minimo?: number;
@@ -113,6 +120,19 @@ export interface InspectionMeasurement {
     desviacion?: number;
     cumple: boolean;
     observacion?: string;
+}
+
+export interface MeasurementInstrument {
+    id: number;
+    codigo: string;
+    nombre: string;
+    tipo: string;
+    fabricante?: string | null;
+    numero_serie?: string | null;
+    certificado_calibracion?: string | null;
+    fecha_ultima_calibracion?: string | null;
+    fecha_vencimiento: string;
+    activo: boolean;
 }
 
 export interface NonConformance {
@@ -189,6 +209,7 @@ export interface QualityRisk {
     id: number;
     codigo: string;
     tipo: 'RIESGO' | 'OPORTUNIDAD';
+    categoria_matriz: 'RIESGO' | 'OPORTUNIDAD';
     proceso: string;
     descripcion: string;
     causa?: string;
@@ -196,6 +217,9 @@ export interface QualityRisk {
     probabilidad: number;
     impacto: number;
     nivel_riesgo: number;
+    viabilidad: number;
+    beneficio: number;
+    nivel_oportunidad: number;
     estrategia?: string;
     plan_accion?: string;
     personal_id?: number;
@@ -232,6 +256,10 @@ export interface Supplier {
     telefono?: string;
     email?: string;
     direccion?: string;
+    riesgo_climatico_score?: number | null;
+    evaluacion_ambiental?: string | null;
+    plan_continuidad_climatica?: string | null;
+    certificaciones_sostenibilidad?: string | null;
     calificacion: number;
     activo: boolean;
     _count?: { inspecciones: number; noConformidades: number };
@@ -378,6 +406,57 @@ export const qualityService = {
     },
     updateRisk: async (id: number, data: any): Promise<QualityRisk> => {
         const res = await axios.put(`${API_URL}/quality/risks/${id}`, data);
+        return res.data;
+    },
+
+    getMeasurementInstruments: async (): Promise<MeasurementInstrument[]> => {
+        const res = await axios.get(`${API_URL}/quality/measurement-instruments`);
+        return res.data;
+    },
+    createMeasurementInstrument: async (data: Partial<MeasurementInstrument>): Promise<MeasurementInstrument> => {
+        const res = await axios.post(`${API_URL}/quality/measurement-instruments`, data);
+        return res.data;
+    },
+    getEthicsAcceptance: async (): Promise<{ version: string; required: boolean; acceptedAt: string | null }> => {
+        const res = await axios.get(`${API_URL}/quality/ethics-acceptance`);
+        return res.data;
+    },
+    acceptEthicsPolicy: async (version: string): Promise<{ version: string; required: boolean; acceptedAt: string }> => {
+        const res = await axios.post(`${API_URL}/quality/ethics-acceptance`, { version, accepted: true });
+        return res.data;
+    },
+    createQualityCost: async (data: {
+        categoria: 'FALLA_INTERNA' | 'FALLA_EXTERNA' | 'PREVENCION_EVALUACION';
+        descripcion: string;
+        monto: number;
+        origen?: string;
+        numero_referencia?: string;
+    }) => {
+        const res = await axios.post(`${API_URL}/quality/non-quality-costs`, data);
+        return res.data;
+    },
+    getContextAssessments: async (): Promise<{
+        id: number; factor: string; origen: string; cambio_climatico_relevante: boolean;
+        impacto_cadena_suministro: string; impacto_sostenibilidad: string; respuesta_planificada: string;
+        responsable: string; fecha_revision: string;
+    }[]> => {
+        const res = await axios.get(`${API_URL}/quality/context-assessments`);
+        return res.data;
+    },
+    createContextAssessment: async (data: {
+        factor: string; origen: 'INTERNO' | 'EXTERNO'; cambio_climatico_relevante: boolean;
+        impacto_cadena_suministro: string; impacto_sostenibilidad: string; respuesta_planificada: string;
+        responsable: string; fecha_revision: string;
+    }) => {
+        const res = await axios.post(`${API_URL}/quality/context-assessments`, data);
+        return res.data;
+    },
+    getLeadershipCommitments: async (): Promise<{ id: number; version: string; compromiso: string; objetivos?: string; aprobado_en: string; usuario: { nombre: string } }[]> => {
+        const res = await axios.get(`${API_URL}/quality/leadership-commitments`);
+        return res.data;
+    },
+    createLeadershipCommitment: async (data: { version: string; compromiso: string; objetivos?: string }) => {
+        const res = await axios.post(`${API_URL}/quality/leadership-commitments`, data);
         return res.data;
     },
 

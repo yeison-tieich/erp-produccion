@@ -15,6 +15,10 @@ interface ProveedorItem {
   calificacion_calidad?: number;
   estado_aprobacion?: string;
   evaluaciones?: Supplier['evaluaciones'];
+  riesgo_climatico_score?: number | null;
+  evaluacion_ambiental?: string | null;
+  plan_continuidad_climatica?: string | null;
+  certificaciones_sostenibilidad?: string | null;
 }
 
 export const SuppliersQualityPage: React.FC = () => {
@@ -33,7 +37,11 @@ export const SuppliersQualityPage: React.FC = () => {
     puntuacion_entrega: 90,
     puntuacion_servicio: 95,
     comentarios: 'Cumplimiento normativo de certificados de molino y tolerancias dimensionales en barras de acero.',
-    evaluador: 'Ing. Calidad'
+    evaluador: 'Ing. Calidad',
+    riesgo_climatico_score: 1,
+    evaluacion_ambiental: '',
+    plan_continuidad_climatica: '',
+    certificaciones_sostenibilidad: ''
   });
 
   useEffect(() => {
@@ -62,6 +70,13 @@ export const SuppliersQualityPage: React.FC = () => {
 
   const handleOpenEvalModal = (supplier: ProveedorItem) => {
     setSelectedSupplier(supplier);
+    setEvalForm(current => ({
+      ...current,
+      riesgo_climatico_score: supplier.riesgo_climatico_score || 1,
+      evaluacion_ambiental: supplier.evaluacion_ambiental || '',
+      plan_continuidad_climatica: supplier.plan_continuidad_climatica || '',
+      certificaciones_sostenibilidad: supplier.certificaciones_sostenibilidad || ''
+    }));
     setIsEvalModalOpen(true);
   };
 
@@ -80,6 +95,12 @@ export const SuppliersQualityPage: React.FC = () => {
       if (globalScore < 70) estado_resultado = 'Bloqueado';
       else if (globalScore < 85) estado_resultado = 'Condicional';
 
+      await qualityService.updateSupplier(selectedSupplier.id_proveedor, {
+        riesgo_climatico_score: evalForm.riesgo_climatico_score,
+        evaluacion_ambiental: evalForm.evaluacion_ambiental,
+        plan_continuidad_climatica: evalForm.plan_continuidad_climatica,
+        certificaciones_sostenibilidad: evalForm.certificaciones_sostenibilidad
+      });
       await qualityService.evaluateSupplier(selectedSupplier.id_proveedor, evalForm.periodo);
 
       setIsEvalModalOpen(false);
@@ -219,6 +240,7 @@ export const SuppliersQualityPage: React.FC = () => {
                     <th className="px-4 py-3 text-left font-semibold text-gray-600">RFC / Identificación</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-600">Contacto</th>
                     <th className="px-4 py-3 text-center font-semibold text-gray-600">Índice Calidad (IQ)</th>
+                    <th className="px-4 py-3 text-center font-semibold text-gray-600">Clima / sostenibilidad</th>
                     <th className="px-4 py-3 text-center font-semibold text-gray-600">Estatus ISO 9001</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-600">Acción</th>
                   </tr>
@@ -226,13 +248,13 @@ export const SuppliersQualityPage: React.FC = () => {
                 <tbody className="divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                         Cargando proveedores...
                       </td>
                     </tr>
                   ) : filteredSuppliers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                         No se encontraron proveedores registrados.
                       </td>
                     </tr>
@@ -259,6 +281,10 @@ export const SuppliersQualityPage: React.FC = () => {
                           }`}>
                             {sup.calificacion_calidad ? `${Number(sup.calificacion_calidad).toFixed(0)}%` : '100%'}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-center text-xs text-gray-600">
+                          <div>{sup.riesgo_climatico_score ? `Riesgo climático ${sup.riesgo_climatico_score}/5` : 'Sin evaluar'}</div>
+                          <div className="text-[10px] text-emerald-700">{sup.certificaciones_sostenibilidad ? 'Sostenibilidad documentada' : 'Sin certificación registrada'}</div>
                         </td>
                         <td className="px-4 py-3 text-center">
                           {getStatusBadge(sup.estado_aprobacion || 'Aprobado')}
@@ -455,6 +481,21 @@ export const SuppliersQualityPage: React.FC = () => {
                   onChange={(e) => setEvalForm({ ...evalForm, puntuacion_servicio: Number(e.target.value) })}
                   className="w-full accent-indigo-600 cursor-pointer"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-gray-700">Riesgo climático para continuidad de suministro (1-5)
+                  <input type="number" min="1" max="5" step="1" value={evalForm.riesgo_climatico_score} onChange={event => setEvalForm({ ...evalForm, riesgo_climatico_score: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+                </label>
+                <label className="text-xs font-semibold text-gray-700">Certificaciones de sostenibilidad
+                  <input value={evalForm.certificaciones_sostenibilidad} onChange={event => setEvalForm({ ...evalForm, certificaciones_sostenibilidad: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" placeholder="Certificado, vigencia..." />
+                </label>
+                <label className="text-xs font-semibold text-gray-700">Evaluación ambiental
+                  <textarea value={evalForm.evaluacion_ambiental} onChange={event => setEvalForm({ ...evalForm, evaluacion_ambiental: event.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+                </label>
+                <label className="text-xs font-semibold text-gray-700">Plan de continuidad climática
+                  <textarea value={evalForm.plan_continuidad_climatica} onChange={event => setEvalForm({ ...evalForm, plan_continuidad_climatica: event.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+                </label>
               </div>
 
               {/* Calculated Score Preview */}

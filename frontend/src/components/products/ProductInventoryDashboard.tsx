@@ -122,30 +122,30 @@ export const ProductInventoryDashboard = ({ onProductSelect }: { onProductSelect
     if (!data) return null;
 
     return (
-        <div className="space-y-5">
-            <div className="flex flex-col gap-4 rounded-3xl border border-white/60 bg-white/60 p-5 shadow-sm lg:flex-row lg:items-end lg:justify-between">
-                <div>
+        <div className="w-full min-w-0 space-y-5">
+            <div className="flex min-w-0 flex-col gap-4 rounded-3xl border border-white/60 bg-white/60 p-5 shadow-sm lg:flex-row lg:items-end lg:justify-between">
+                <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-700">Inventario de productos</p>
-                    <h2 className="mt-1 text-2xl font-black text-slate-900">Control de catálogo y existencias</h2>
-                    <p className="mt-1 text-sm text-slate-500">Clientes objetivo: CHEA ING, SERIES, Siemens, TNK y ARNESES Y GOMAS.</p>
+                    <h2 className="mt-1 break-words text-2xl font-black text-slate-900">Control de catálogo y existencias</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">Clientes objetivo: CHEA ING, SERIES, Siemens, TNK y ARNESES Y GOMAS.</p>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-                    <label className="text-xs font-bold text-slate-500">Desde<input type="date" value={from} onChange={event => setFrom(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
-                    <label className="text-xs font-bold text-slate-500">Hasta<input type="date" value={to} onChange={event => setTo(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
-                    <label className="text-xs font-bold text-slate-500">Movimiento<select value={movementType} onChange={event => setMovementType(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="">Todos</option>{data.filters.types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-                    <label className="text-xs font-bold text-slate-500">Producto<select value={productId} onChange={event => setProductId(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="">Todos</option>{data.filters.products.map(product => <option key={product.id} value={product.id}>{product.sku} - {product.nombre}</option>)}</select></label>
+                <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-[68%] lg:grid-cols-4">
+                    <label className="min-w-0 text-xs font-bold text-slate-500">Desde<input type="date" value={from} onChange={event => setFrom(event.target.value)} className="mt-1 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
+                    <label className="min-w-0 text-xs font-bold text-slate-500">Hasta<input type="date" value={to} onChange={event => setTo(event.target.value)} className="mt-1 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
+                    <label className="min-w-0 text-xs font-bold text-slate-500">Movimiento<select value={movementType} onChange={event => setMovementType(event.target.value)} className="mt-1 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="">Todos</option>{data.filters.types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                    <label className="min-w-0 text-xs font-bold text-slate-500">Producto<select value={productId} onChange={event => setProductId(event.target.value)} className="mt-1 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="">Todos</option>{data.filters.products.map(product => <option key={product.id} value={product.id}>{product.sku} - {product.nombre}</option>)}</select></label>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                     { label: 'Productos en catálogo', value: formatNumber(data.kpis.totalProductos), detail: 'Clientes objetivo', icon: Package, color: 'text-blue-700', bg: 'bg-blue-50' },
                     { label: 'Piezas críticas o agotadas', value: formatNumber(data.kpis.piezasCriticas), detail: 'Stock bajo mínimos', icon: AlertTriangle, color: 'text-red-700', bg: 'bg-red-50' },
                     { label: 'Integridad de datos', value: `${data.kpis.integridadDatos}%`, detail: 'Ficha técnica completa', icon: CheckCircle2, color: 'text-emerald-700', bg: 'bg-emerald-50' },
                     { label: 'Valor inventario físico', value: formatCurrency(data.kpis.valorInventario), detail: 'Stock x precio de venta', icon: TrendingUp, color: 'text-violet-700', bg: 'bg-violet-50' }
                 ].map(kpi => (
-                    <GlassCard key={kpi.label} className="!p-5 flex items-center gap-4">
-                        <div className={`rounded-2xl p-3 ${kpi.bg}`}><kpi.icon className={`h-6 w-6 ${kpi.color}`} /></div>
+                    <GlassCard key={kpi.label} className="!p-5 flex min-w-0 items-center gap-3 sm:gap-4">
+                        <div className={`shrink-0 rounded-2xl p-3 ${kpi.bg}`}><kpi.icon className={`h-6 w-6 ${kpi.color}`} /></div>
                         <div className="min-w-0"><p className="truncate text-[11px] font-black uppercase tracking-wider text-slate-500">{kpi.label}</p><p className="mt-1 truncate text-2xl font-black text-slate-900">{kpi.value}</p><p className="text-xs text-slate-400">{kpi.detail}</p></div>
                     </GlassCard>
                 ))}
@@ -153,25 +153,25 @@ export const ProductInventoryDashboard = ({ onProductSelect }: { onProductSelect
 
             <section>
                 <div className="mb-3 flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-amber-600" /><h3 className="text-lg font-black text-slate-900">Data Health Check</h3></div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {Object.entries(healthLabels).map(([key, config]) => {
                         const items = data.dataHealth[key] || [];
-                        return <button key={key} onClick={() => items[0] && onProductSelect(items[0].id)} className="text-left rounded-2xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-2"><config.icon className={`h-5 w-5 ${config.color}`} /><span className="text-sm font-bold text-slate-700">{config.label}</span></div><span className="text-2xl font-black text-slate-900">{items.length}</span></div><p className="mt-3 text-xs text-slate-400">{items.length ? `${items[0].sku} - ${items[0].nombre}` : 'Sin alertas en el alcance seleccionado'}</p></button>;
+                        return <button key={key} onClick={() => items[0] && onProductSelect(items[0].id)} className="min-w-0 text-left rounded-2xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><config.icon className={`h-5 w-5 shrink-0 ${config.color}`} /><span className="min-w-0 break-words text-sm font-bold text-slate-700">{config.label}</span></div><span className="shrink-0 text-2xl font-black text-slate-900">{items.length}</span></div><p className="mt-3 break-words text-xs text-slate-400">{items.length ? `${items[0].sku} - ${items[0].nombre}` : 'Sin alertas en el alcance seleccionado'}</p></button>;
                     })}
                 </div>
             </section>
 
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                <GlassCard>
+            <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
+                <GlassCard className="min-w-0 overflow-hidden">
                     <div className="mb-4 flex items-center gap-2"><BarChart3 className="h-5 w-5 text-brand-600" /><h3 className="font-black text-slate-900">Top 10 por movimiento</h3></div>
                     <div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.rotationTop10} layout="vertical" margin={{ left: 12, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" /><XAxis type="number" tick={{ fontSize: 11 }} /><YAxis type="category" dataKey="sku" width={80} tick={{ fontSize: 10 }} /><Tooltip /><Bar dataKey="entradas" stackId="mov" fill="#0f766e" name="Entradas" /><Bar dataKey="salidas" stackId="mov" fill="#f97316" name="Salidas" /></BarChart></ResponsiveContainer></div>
                 </GlassCard>
-                <GlassCard>
+                <GlassCard className="min-w-0 overflow-hidden">
                     <div className="mb-4 flex items-center gap-2"><Package className="h-5 w-5 text-brand-600" /><h3 className="font-black text-slate-900">Distribución del inventario</h3></div>
                     <div className="h-72"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data.stockDistribution} dataKey="cantidad" nameKey="estado" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={4}>{data.stockDistribution.map((entry, index) => <Cell key={entry.estado} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}</Pie><Tooltip /><text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-700 text-sm font-black">{data.kpis.totalProductos}</text></PieChart></ResponsiveContainer></div>
                     <div className="flex flex-wrap justify-center gap-3 text-xs font-bold text-slate-500">{data.stockDistribution.map((entry, index) => <span key={entry.estado} className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} />{entry.estado}: {entry.cantidad}</span>)}</div>
                 </GlassCard>
-                <GlassCard>
+                <GlassCard className="min-w-0 overflow-hidden">
                     <div className="mb-4 flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-brand-600" /><h3 className="font-black text-slate-900">Completitud técnica</h3></div>
                     <div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data.completenessDistribution} dataKey="cantidad" nameKey="estado" cx="50%" cy="50%" innerRadius={60} outerRadius={92} paddingAngle={5}>{data.completenessDistribution.map((entry, index) => <Cell key={entry.estado} fill={COMPLETENESS_COLORS[index % COMPLETENESS_COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
                     <div className="flex justify-center gap-4 text-xs font-bold text-slate-500">{data.completenessDistribution.map((entry, index) => <span key={entry.estado} className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: COMPLETENESS_COLORS[index] }} />{entry.estado}: {entry.cantidad}</span>)}</div>

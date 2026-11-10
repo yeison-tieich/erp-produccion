@@ -186,6 +186,16 @@ export const finishTask = async (req: Request, res: Response) => {
                 include: { ordenTrabajo: { include: { producto: { include: { listaMateriales: true } } } } }
             });
 
+            // Ingreso atómico e idempotente de producto terminado (exclusivo para Verificación y Empaque)
+            const buenaAprobada = cantidad_buena !== undefined ? Number(cantidad_buena) : Number(task.cantidad_buena || 0);
+            await InventoryService.registerFinishedProductEntry(tx, {
+                ordenTrabajoId: task.orden_trabajo_id,
+                tareaId: task.id,
+                cantidadBuenaAprobada: buenaAprobada,
+                usuarioNombre: (req as any).user?.nombre || 'Operario',
+                observacion: `Ingreso por finalización de tarea (OT ${task.ordenTrabajo.numero_ot})`
+            });
+
             const allTasksInOrder = await tx.tareaProduccion.findMany({
                 where: { orden_trabajo_id: task.orden_trabajo_id },
                 include: { rutaFabricacion: true }
@@ -213,14 +223,6 @@ export const finishTask = async (req: Request, res: Response) => {
                     observacion: `Consumo automático al finalizar última tarea de OT ${task.ordenTrabajo.numero_ot}`,
                     targetStatus: 'Completada'
                 });
-
-                // Update finished product stock
-                const lastTask = [...allTasksInOrder].sort((a, b) => (b.secuencia_ot ?? b.rutaFabricacion?.no_operacion ?? b.id) - (a.secuencia_ot ?? a.rutaFabricacion?.no_operacion ?? a.id))[0];
-                const cantidadTerminada = Number(lastTask?.cantidad_buena || 0);
-                if (completedOrder.producto_id && cantidadTerminada > 0) {
-                    await tx.producto.update({ where: { id: completedOrder.producto_id }, data: { stock_actual: { increment: cantidadTerminada } } });
-                    await tx.movimientoProducto.create({ data: { producto_id: completedOrder.producto_id, tipo_movimiento: 'PRODUCCION_OT', cantidad: cantidadTerminada, referencia: completedOrder.numero_ot } });
-                }
             }
 
             return task;
@@ -283,10 +285,10 @@ export const createTarea = async (req: Request, res: Response) => {
 
 export const updateTaskDetails = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { 
-        fecha_hora_inicio, 
-        fecha_hora_fin, 
-        costo_real, 
+    const {
+        fecha_hora_inicio,
+        fecha_hora_fin,
+        costo_real,
         duracion_real_min,
         cantidad_buena,
         cantidad_mala,
@@ -294,22 +296,56 @@ export const updateTaskDetails = async (req: Request, res: Response) => {
         fecha,
         tiempo_estimado_min,
         comentarios,
-        estado_tarea
+        estado_tarea,
+        usuario_ultima_edicion
     } = req.body;
     try {
+        const currentTask = await prisma.tareaProduccion.findUnique({
+            where: { id: Number(id) },
+            include: { ordenTrabajo: true }
+        });
+
+        if (!currentTask) {
+            return res.status(404).json({ error: 'Tarea no encontrada' });
+        }
+
+        const nextStart = fecha_hora_inicio !== undefined ? (fecha_hora_inicio ? new Date(fecha_hora_inicio) : null) : currentTask.fecha_hora_inicio;
+        const nextEnd = fecha_hora_fin !== undefined ? (fecha_hora_fin ? new Date(fecha_hora_fin) : null) : currentTask.fecha_hora_fin;
+
+        if (nextStart && nextEnd && nextEnd < nextStart) {
+            return res.status(400).json({ error: 'La fecha de fin no puede ser anterior a la fecha de inicio.' });
+        }
+
         const updateData: any = {};
         if (prioridad) updateData.prioridad = prioridad;
         if (fecha) updateData.fecha = new Date(fecha);
         if (tiempo_estimado_min !== undefined) updateData.tiempo_estimado_min = Number(tiempo_estimado_min);
-        if (comentarios !== undefined) updateData.comentarios = comentarios;
+        if (comentarios !== undefined || usuario_ultima_edicion !== undefined) {
+            const normalizedComment = comentarios !== undefined ? String(comentarios).trim() : '';
+            const timestamp = new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+            const editor = usuario_ultima_edicion ? String(usuario_ultima_edicion).trim() || 'Sistema' : 'Sistema';
+            const auditSuffix = `\n[Última edición: ${editor} • ${timestamp}]`;
+            updateData.comentarios = normalizedComment ? `${normalizedComment}${auditSuffix}` : auditSuffix.replace(/^\n/, '');
+        }
         if (estado_tarea) updateData.estado_tarea = estado_tarea;
 
-        if (fecha_hora_inicio) updateData.fecha_hora_inicio = new Date(fecha_hora_inicio);
-        if (fecha_hora_fin) updateData.fecha_hora_fin = new Date(fecha_hora_fin);
+        if (fecha_hora_inicio !== undefined) updateData.fecha_hora_inicio = fecha_hora_inicio ? new Date(fecha_hora_inicio) : null;
+        if (fecha_hora_fin !== undefined) updateData.fecha_hora_fin = fecha_hora_fin ? new Date(fecha_hora_fin) : null;
         if (costo_real !== undefined) updateData.costo_real = Number(costo_real);
-        if (duracion_real_min !== undefined) updateData.duracion_real_min = Number(duracion_real_min);
         if (cantidad_buena !== undefined) updateData.cantidad_buena = Number(cantidad_buena);
         if (cantidad_mala !== undefined) updateData.cantidad_mala = Number(cantidad_mala);
+
+        let calculatedRealMinutes: number | undefined;
+        if (duracion_real_min !== undefined) {
+            calculatedRealMinutes = Math.max(0, Number(duracion_real_min));
+        } else if (nextStart && nextEnd) {
+            calculatedRealMinutes = Math.max(0, Math.round((nextEnd.getTime() - nextStart.getTime()) / 60000));
+        }
+
+        if (calculatedRealMinutes !== undefined) {
+            updateData.duracion_real_min = calculatedRealMinutes;
+            updateData.tiempo_real_min = calculatedRealMinutes;
+        }
 
         const updatedTask = await prisma.tareaProduccion.update({
             where: { id: Number(id) },
@@ -322,10 +358,45 @@ export const updateTaskDetails = async (req: Request, res: Response) => {
             }
         });
 
+        const orderTasks = await prisma.tareaProduccion.findMany({
+            where: { orden_trabajo_id: updatedTask.orden_trabajo_id },
+            include: { rutaFabricacion: true }
+        });
+
+        const totalDuration = orderTasks.reduce((acc, task) => acc + Number(task.duracion_real_min || task.tiempo_real_min || 0), 0);
+        const totalCost = orderTasks.reduce((acc, task) => acc + Number(task.costo_real || 0), 0);
+        const allDone = orderTasks.every(task => task.estado_tarea === 'Finalizada' || task.estado_tarea === 'Completada');
+
+        await prisma.ordenTrabajo.update({
+            where: { id: updatedTask.orden_trabajo_id },
+            data: {
+                duracion_total_real_min: totalDuration,
+                costo_total_real: totalCost,
+                estado_ot: allDone ? 'Completada' : currentTask.ordenTrabajo.estado_ot
+            }
+        });
+
+        // Si la tarea editada es de Verificación y Empaque y está finalizada, sincronizar stock (solo si hubo delta positivo)
+        if (
+            updatedTask.cantidad_buena !== undefined &&
+            updatedTask.cantidad_buena !== null &&
+            (updatedTask.estado_tarea === 'Finalizada' || updatedTask.estado_tarea === 'Completada')
+        ) {
+            await prisma.$transaction(async (tx) => {
+                await InventoryService.registerFinishedProductEntry(tx, {
+                    ordenTrabajoId: updatedTask.orden_trabajo_id,
+                    tareaId: updatedTask.id,
+                    cantidadBuenaAprobada: Number(updatedTask.cantidad_buena),
+                    usuarioNombre: usuario_ultima_edicion || (req as any).user?.nombre || 'Supervisor',
+                    observacion: `Ajuste de cantidad aprobada en tarea (OT ${currentTask.ordenTrabajo.numero_ot})`
+                });
+            });
+        }
+
         res.json(updatedTask);
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        res.status(500).json({ error: 'Error actualizando detalles de tarea' });
+        res.status(500).json({ error: 'Error actualizando detalles de tarea', details: error.message });
     }
 };
 

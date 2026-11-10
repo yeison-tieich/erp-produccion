@@ -4,11 +4,16 @@ import {
     Box, Plus, Search, Layers, Activity,
     ShoppingCart, ArrowUpDown, Edit3,
     MoreVertical, User, Tag, MapPin,
-    X, Check, AlertCircle, Package, Trash2, FileText, Eye, Upload, Calendar, History, ChevronDown, ChevronUp, LayoutDashboard
+    X, Check, AlertCircle, Package, Trash2, FileText, Eye, Upload, Calendar, History, ChevronDown, ChevronUp, LayoutDashboard, Camera, Image as ImageIcon, Loader2
 } from 'lucide-react';
 import clsx from 'clsx';
 import { API_URL, getAssetUrl } from '../api';
+import { SideDrawer } from '../components/ui/SideDrawer';
 import { ProductInventoryDashboard } from '../components/products/ProductInventoryDashboard';
+import { Capacitor } from '@capacitor/core';
+import { capturePhotoFromCamera, pickPhotoFromGallery } from '../utils/camera';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -53,6 +58,12 @@ const compressImage = (file: File): Promise<File> => {
     });
 };
 
+const MAX_PRODUCT_PDF_SIZE = 24 * 1024 * 1024;
+
+const isProductPdf = (file: File) =>
+    file.name.toLowerCase().endsWith('.pdf')
+    && (file.type === '' || file.type === 'application/pdf' || file.type === 'application/octet-stream');
+
 interface Product {
     id: number;
     sku_producto: string;
@@ -66,10 +77,12 @@ interface Product {
     stock_minimo?: number | null;
     stock_maximo?: number | null;
     ancho_tira?: number | null;
+    fuerza_troquelado?: number | null;
     medidas_pieza?: string | null;
     piezas_lamina_4x8?: string | null;
     piezas_lamina_2x1?: string | null;
     empaque_de?: string | null;
+    ubicacion?: string | null;
     plano_pdf_url?: string | null;
     activo: boolean;
     precio_venta?: number | null;
@@ -83,7 +96,10 @@ const initialNewProductState = {
     cliente_id: '',
     acabado: '',
     ancho_tira: '',
+    fuerza_troquelado: '',
     medidas_pieza: '',
+    piezas_lamina_4x8: '',
+    piezas_lamina_2x1: '',
     empaque_de: '',
     stock_actual: 0,
     stock_minimo: '',
@@ -95,6 +111,7 @@ export const Products = () => {
     const [activeTab, setActiveTab] = useState<'dashboard' | 'catalogo'>('dashboard');
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
+    const [productLoadError, setProductLoadError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [clientFilter, setClientFilter] = useState('');
     const [showMoreSummary, setShowMoreSummary] = useState(false);
@@ -124,12 +141,42 @@ export const Products = () => {
     // Edit Form States
     const [editData, setEditData] = useState<any>({ ...initialNewProductState, materials: [] });
     const [newProductData, setNewProductData] = useState<any>({ ...initialNewProductState });
+    const [newProductImageFile, setNewProductImageFile] = useState<File | undefined>();
+    const [newProductPdfFile, setNewProductPdfFile] = useState<File | undefined>();
 
     const [clients, setClients] = useState<any[]>([]);
     const [allMateriaPrima, setAllMateriaPrima] = useState<any[]>([]);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showPDFModal, setShowPDFModal] = useState(false);
     const [showInactive, setShowInactive] = useState(false);
+    const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const handleImagePasteFromClipboard = (
+        event: React.ClipboardEvent<HTMLDivElement>,
+        setFile: (file: File | undefined) => void
+    ) => {
+        const clipboardItem = Array.from(event.clipboardData?.items ?? []).find(
+            item => item.kind === 'file' && item.type.startsWith('image/')
+        );
+
+        if (!clipboardItem) return;
+
+        event.preventDefault();
+        const pastedFile = clipboardItem.getAsFile();
+        if (!pastedFile) return;
+
+        const fileType = pastedFile.type.toLowerCase();
+        const supportedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+        if (!supportedTypes.includes(fileType) && !fileType.startsWith('image/')) {
+            setNotice({ type: 'error', message: 'Solo se permiten imágenes PNG, JPG/JPEG o WEBP.' });
+            return;
+        }
+
+        const fileName = pastedFile.name || `captura-${Date.now()}.png`;
+        setFile(new File([pastedFile], fileName, { type: fileType || 'image/png' }));
+        setNotice(null);
+    };
 
     const fetchProducts = async () => {
         setLoading(true);
@@ -139,8 +186,12 @@ export const Products = () => {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
             setProducts(res.data);
+            setProductLoadError('');
         } catch (error) {
             console.error(error);
+            setProductLoadError(axios.isAxiosError(error)
+                ? error.response?.data?.error || error.message
+                : error instanceof Error ? error.message : 'No fue posible cargar los productos.');
         } finally {
             setLoading(false);
         }
@@ -235,36 +286,41 @@ export const Products = () => {
     const handleEditProduct = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedProduct) return;
+        let failedStage = 'actualizando los datos del producto';
         try {
             const token = localStorage.getItem('token');
             // If there's a new image file selected, upload it first
             if (editData.imageFile) {
+                failedStage = 'subiendo la foto del producto';
                 const compressedFile = await compressImage(editData.imageFile);
                 const form = new FormData();
-                form.append('image', compressedFile);
+                form.append('image', compressedFile, compressedFile.name);
                 await axios.post(`${API_URL}/products/${selectedProduct.id}/image`, form, {
                     headers: {
                         Authorization: `Bearer ${token}`
                     }
                 });
-                delete editData.imageFile;
             }
 
             // If there's a new PDF file selected, upload it
             if (editData.pdfFile) {
+                failedStage = 'subiendo el plano PDF';
                 const form = new FormData();
-                form.append('pdf', editData.pdfFile);
+                form.append('pdf', editData.pdfFile, editData.pdfFile.name);
                 await axios.post(`${API_URL}/products/${selectedProduct.id}/pdf`, form, {
                     headers: {
                         Authorization: `Bearer ${token}`
                     }
                 });
-                delete editData.pdfFile;
             }
 
             // Prepare payload for material association
+            failedStage = 'actualizando los datos del producto';
+            const productData = { ...editData };
+            delete productData.imageFile;
+            delete productData.pdfFile;
             const payload = {
-                ...editData,
+                ...productData,
                 precio_venta: editData.precio_venta ? Number(editData.precio_venta) : 0,
                 materials: (editData.materials || []).map((m: any) => ({
                     materia_prima_id: m.materia_prima_id,
@@ -275,13 +331,16 @@ export const Products = () => {
             const updateResponse = await axios.put(`${API_URL}/products/${selectedProduct.id}`, payload, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
-            setSelectedProduct(updateResponse.data);
+            setSelectedProduct({ ...selectedProduct, ...updateResponse.data });
             setShowEditModal(false);
             fetchProducts();
             alert('Producto actualizado con éxito');
         } catch (error) {
-            console.error(error);
-            alert('Error actualizando producto');
+            console.error(`Error ${failedStage}:`, error);
+            const message = axios.isAxiosError(error)
+                ? error.response?.data?.error || error.message
+                : error instanceof Error ? error.message : '';
+            alert(`No se pudo ${failedStage}${message ? `: ${message}` : '. Revisa la conexión e inténtalo nuevamente.'}`);
         }
     };
 
@@ -305,18 +364,67 @@ export const Products = () => {
 
     const handleCreateProduct = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isCreatingProduct) return;
+
+        setIsCreatingProduct(true);
+        setNotice(null);
+
         try {
             const token = localStorage.getItem('token');
-            await axios.post(`${API_URL}/products`, newProductData, {
+            const response = await axios.post(`${API_URL}/products`, newProductData, {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined
             });
+
+            let createdProduct = response.data?.product ?? response.data ?? newProductData;
+            const uploadErrors: string[] = [];
+            if (newProductImageFile) {
+                if (createdProduct.id) {
+                    try {
+                        const compressedFile = await compressImage(newProductImageFile);
+                        const form = new FormData();
+                        form.append('image', compressedFile, compressedFile.name);
+                        const imageResponse = await axios.post(`${API_URL}/products/${createdProduct.id}/image`, form, {
+                            headers: token ? { Authorization: `Bearer ${token}` } : undefined
+                        });
+                        createdProduct = imageResponse.data;
+                    } catch (error: any) {
+                        uploadErrors.push(error.response?.data?.error || 'No fue posible guardar la imagen en el servidor.');
+                    }
+                } else {
+                    uploadErrors.push('No se recibió el identificador del producto para asociar la imagen.');
+                }
+            }
+
+            if (newProductPdfFile) {
+                if (createdProduct.id) {
+                    try {
+                        const form = new FormData();
+                        form.append('pdf', newProductPdfFile, newProductPdfFile.name);
+                        const pdfResponse = await axios.post(`${API_URL}/products/${createdProduct.id}/pdf`, form, {
+                            headers: token ? { Authorization: `Bearer ${token}` } : undefined
+                        });
+                        createdProduct = pdfResponse.data;
+                    } catch (error: any) {
+                        uploadErrors.push(error.response?.data?.error || 'No fue posible guardar el plano PDF en el servidor.');
+                    }
+                } else {
+                    uploadErrors.push('No se recibió el identificador del producto para asociar el plano PDF.');
+                }
+            }
+
+            setProducts(prev => [createdProduct, ...prev]);
             setShowCreateModal(false);
             setNewProductData({ ...initialNewProductState });
-            fetchProducts();
-            alert('Producto creado con éxito');
+            setNewProductImageFile(undefined);
+            setNewProductPdfFile(undefined);
+            setNotice(uploadErrors.length
+                ? { type: 'error', message: `Producto creado, pero falló la carga de archivos: ${uploadErrors.join(' ')}` }
+                : { type: 'success', message: 'Producto creado correctamente.' });
         } catch (error: any) {
             const errMsg = error.response?.data?.error || 'Error creando producto';
-            alert(errMsg);
+            setNotice({ type: 'error', message: errMsg });
+        } finally {
+            setIsCreatingProduct(false);
         }
     };
 
@@ -361,8 +469,12 @@ export const Products = () => {
             cliente_id: product.cliente_id?.toString() || '',
             acabado: product.acabado || '',
             ancho_tira: product.ancho_tira || '',
+            fuerza_troquelado: product.fuerza_troquelado ?? '',
             medidas_pieza: product.medidas_pieza || '',
+            piezas_lamina_4x8: product.piezas_lamina_4x8 || '',
+            piezas_lamina_2x1: product.piezas_lamina_2x1 || '',
             empaque_de: product.empaque_de || '',
+            pdfFile: undefined,
             stock_minimo: product.stock_minimo ?? '',
             stock_maximo: product.stock_maximo ?? '',
             activo: product.activo ?? true,
@@ -377,9 +489,163 @@ export const Products = () => {
     };
 
     const openCreateModal = () => {
+        setNotice(null);
         setNewProductData({ ...initialNewProductState });
+        setNewProductImageFile(undefined);
+        setNewProductPdfFile(undefined);
         setShowCreateModal(true);
     };
+
+    const handlePrintProduct = async () => {
+        if (!selectedProduct) return;
+
+        try {
+            const logoResponse = await fetch('/logo.png');
+            if (!logoResponse.ok) throw new Error('No se pudo cargar el logotipo corporativo.');
+            const logoBlob = await logoResponse.blob();
+            const logoDataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => typeof reader.result === 'string'
+                    ? resolve(reader.result)
+                    : reject(new Error('No se pudo procesar el logotipo corporativo.'));
+                reader.onerror = () => reject(reader.error || new Error('No se pudo procesar el logotipo corporativo.'));
+                reader.readAsDataURL(logoBlob);
+            });
+
+            const product = selectedProduct;
+            const doc = new jsPDF({ format: 'a4', unit: 'mm' });
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const missing = 'No definido';
+            const value = (item: unknown) => item === null || item === undefined || item === '' ? missing : String(item);
+            const stock = (item: unknown) => item === null || item === undefined || item === '' ? missing : Number(item).toLocaleString('es-CO');
+
+            doc.setProperties({
+                title: `Ficha de producto ${product.sku_producto}`,
+                subject: 'Ficha técnica de producto',
+                author: 'ERP MECAYTRO'
+            });
+            doc.setFillColor(15, 23, 42);
+            doc.rect(0, 0, pageWidth, 34, 'F');
+            doc.addImage(logoDataUrl, 'PNG', 14, 9, 42, 14);
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(13);
+            doc.text('FICHA TÉCNICA DE PRODUCTO', pageWidth - 14, 15, { align: 'right' });
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.text('Código de formato: FP', pageWidth - 14, 22, { align: 'right' });
+            doc.text(`Generado: ${new Date().toLocaleDateString('es-CO')}`, pageWidth - 14, 28, { align: 'right' });
+
+            autoTable(doc, {
+                startY: 40,
+                head: [['IDENTIFICACIÓN Y DATOS TÉCNICOS', 'VALOR']],
+                body: [
+                    ['Código interno', value(product.id)],
+                    ['SKU', value(product.sku_producto)],
+                    ['Nombre del producto', value(product.nombre_producto)],
+                    ['Descripción', value(product.descripcion)],
+                    ['Cliente', value(product.cliente?.nombre)],
+                    ['Contacto del cliente', value(product.cliente?.contacto)],
+                    ['Dirección del cliente', value(product.cliente?.direccion)],
+                    ['Estado', product.activo ? 'Activo' : 'Inactivo'],
+                    ['Acabado', value(product.acabado)],
+                    ['Ancho de tira (mm)', value(product.ancho_tira)],
+                    ['Dimensiones de pieza (mm)', value(product.medidas_pieza)],
+                    ['Fuerza de Troquelado (Ton / Peso del golpe requerido)', value(product.fuerza_troquelado)],
+                    ['Piezas obtenidas por Lámina 4x8 (ft)', value(product.piezas_lamina_4x8)],
+                    ['Piezas obtenidas por Lámina 2x1 (m)', value(product.piezas_lamina_2x1)],
+                    ['Empaque de', value(product.empaque_de)],
+                    ['Stock actual', stock(product.stock_actual)],
+                    ['Stock mínimo', stock(product.stock_minimo)],
+                    ['Stock máximo', stock(product.stock_maximo)],
+                    ['Precio de venta', `$${Number(product.precio_venta || 0).toLocaleString('es-CO')}`],
+                    ['Ubicación', value(product.ubicacion)],
+                    ['Imagen del producto', value(product.imagen_url)],
+                    ['Plano técnico PDF', value(product.plano_pdf_url)]
+                ],
+                headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
+                alternateRowStyles: { fillColor: [248, 250, 252] },
+                styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
+                columnStyles: { 0: { cellWidth: 66, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
+                margin: { left: 14, right: 14 }
+            });
+
+            let materialsStartY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 40) + 10;
+            if (materialsStartY > 267) {
+                doc.addPage();
+                materialsStartY = 20;
+            }
+            doc.setTextColor(15, 23, 42);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text('LISTA DE MATERIALES', 14, materialsStartY);
+            autoTable(doc, {
+                startY: materialsStartY + 2,
+                head: [['Material', 'SKU MP', 'Cantidad requerida', 'Unidad']],
+                body: product.listaMateriales?.length
+                    ? product.listaMateriales.map(material => [
+                        material.materiaPrima?.nombre_mp || value(material.materia_prima_id),
+                        value((material.materiaPrima as { sku_mp?: string } | undefined)?.sku_mp),
+                        value(material.cantidad_requerida),
+                        value(material.materiaPrima?.unidad_medida_stock)
+                    ])
+                    : [['Sin materiales asociados', '', '', '']],
+                headStyles: { fillColor: [37, 99, 235] },
+                styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
+                margin: { left: 14, right: 14 }
+            });
+
+            let routesStartY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 40) + 10;
+            if (routesStartY > 267) {
+                doc.addPage();
+                routesStartY = 20;
+            }
+            doc.setTextColor(15, 23, 42);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text('PROCESO DE FABRICACIÓN', 14, routesStartY);
+            autoTable(doc, {
+                startY: routesStartY + 2,
+                head: [['No. operación', 'Operación', 'Centro de trabajo', 'Piezas / hora', 'Tiempo estándar']],
+                body: product.rutas?.length
+                    ? product.rutas.map((route: any) => [
+                        value(route.no_operacion),
+                        value(route.nombre_operacion),
+                        value(route.centro_trabajo),
+                        value(route.piezas_por_hora_estimado),
+                        value(route.tiempo_estandar)
+                    ])
+                    : [['', 'Sin operaciones registradas', '', '', '']],
+                headStyles: { fillColor: [37, 99, 235] },
+                styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
+                margin: { left: 14, right: 14 }
+            });
+
+            const pageCount = doc.getNumberOfPages();
+            for (let page = 1; page <= pageCount; page += 1) {
+                doc.setPage(page);
+                doc.setDrawColor(203, 213, 225);
+                doc.line(14, 286, pageWidth - 14, 286);
+                doc.setFontSize(8);
+                doc.setTextColor(100, 116, 139);
+                doc.text(`FP · ${product.sku_producto}`, 14, 291);
+                doc.text(`Página ${page} de ${pageCount}`, pageWidth - 14, 291, { align: 'right' });
+            }
+
+            const safeSku = product.sku_producto.replace(/[^\w.-]+/g, '_');
+            doc.save(`Ficha_Producto_${safeSku}.pdf`);
+        } catch (error) {
+            console.error('Error generando la ficha PDF del producto:', error);
+            window.alert(error instanceof Error ? error.message : 'No fue posible generar la ficha PDF del producto.');
+        }
+    };
+
+    useEffect(() => {
+        if (!notice) return;
+
+        const timer = window.setTimeout(() => setNotice(null), 3000);
+        return () => window.clearTimeout(timer);
+    }, [notice]);
 
     const filteredProducts = products
         .filter(p => (showInactive ? true : p.activo !== false))
@@ -402,7 +668,29 @@ export const Products = () => {
     const summaryProducts = summaryProductCandidates.slice(0, showMoreSummary ? 20 : 10);
 
     return (
-        <div className="space-y-6 pb-10">
+        <div className="w-full min-w-0 space-y-6 pb-10">
+            {productLoadError && (
+                <div role="alert" className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-semibold">No se pudo cargar el catálogo: {productLoadError}</span>
+                    <button type="button" onClick={fetchProducts} className="shrink-0 rounded-lg bg-red-100 px-3 py-2 font-bold text-red-800 transition hover:bg-red-200">
+                        Reintentar
+                    </button>
+                </div>
+            )}
+
+            {notice && (
+                <div className={`fixed right-5 top-5 z-[140] rounded-2xl border px-4 py-3 shadow-lg backdrop-blur ${
+                    notice.type === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-red-200 bg-red-50 text-red-700'
+                }`}>
+                    <div className="flex items-center gap-2 text-sm font-bold">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current" />
+                        {notice.message}
+                    </div>
+                </div>
+            )}
+
             {/* Header section */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
@@ -438,25 +726,53 @@ export const Products = () => {
 
             {activeTab === 'dashboard' && (
             <>
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 className="text-base font-bold text-slate-900">Productos y existencias</h2>
                         <p className="mt-1 text-sm text-slate-500">Listado de hasta {showMoreSummary ? 20 : 10} productos activos</p>
                     </div>
-                    <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                    <label className="flex w-full min-w-0 flex-col gap-2 text-sm font-medium text-slate-600 sm:w-auto sm:flex-row sm:items-center">
                         <span>Cliente</span>
                         <select
                             value={clientFilter}
                             onChange={e => setClientFilter(e.target.value)}
-                            className="min-w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 sm:min-w-48"
                         >
                             <option value="">Todos los clientes</option>
                             {clients.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                         </select>
                     </label>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="max-h-[70vh] min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y">
+                <div className="divide-y divide-slate-100 lg:hidden">
+                    {loading ? (
+                        <p className="px-4 py-8 text-center text-slate-500">Cargando productos...</p>
+                    ) : summaryProducts.length === 0 ? (
+                        <p className="px-4 py-8 text-center text-slate-500">No hay productos para este cliente.</p>
+                    ) : summaryProducts.map(product => {
+                        const materials = Array.from(new Set((product.listaMateriales || []).map(m => m.materiaPrima?.nombre_mp).filter(Boolean)));
+                        return (
+                            <article key={product.id} className="min-w-0 space-y-2 p-4">
+                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="break-words font-semibold text-slate-900">{product.nombre_producto}</p>
+                                        <p className="mt-1 break-words text-xs text-slate-500">{product.cliente?.nombre || '-'} · {product.sku_producto || '-'}</p>
+                                    </div>
+                                    <p className="shrink-0 whitespace-nowrap text-sm font-bold text-slate-800">
+                                        {Number(product.stock_actual || 0).toLocaleString()} un.
+                                    </p>
+                                </div>
+                                <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-slate-600 min-[400px]:grid-cols-2">
+                                    <div><dt className="inline font-semibold">Material: </dt><dd className="inline break-words">{materials.join(', ') || '-'}</dd></div>
+                                    <div><dt className="inline font-semibold">Acabado: </dt><dd className="inline break-words">{product.acabado || '-'}</dd></div>
+                                    <div className="min-[400px]:col-span-2"><dt className="inline font-semibold">Piezas obtenidas por lámina: </dt><dd className="inline break-words">4×8 (ft): {product.piezas_lamina_4x8 || '-'} | 2×1 (m): {product.piezas_lamina_2x1 || '-'}</dd></div>
+                                </dl>
+                            </article>
+                        );
+                    })}
+                </div>
+                <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full min-w-[1050px] text-left text-sm">
                         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                             <tr>
@@ -483,13 +799,14 @@ export const Products = () => {
                                         <td className="px-4 py-3 font-medium text-slate-900">{product.nombre_producto}</td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{Number(product.stock_actual || 0).toLocaleString()}</td>
                                         <td className="px-4 py-3 text-slate-600">{materials.join(', ') || '-'}</td>
-                                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">4×8: {product.piezas_lamina_4x8 || '-'} <span className="px-1 text-slate-300">|</span> 2×1: {product.piezas_lamina_2x1 || '-'}</td>
+                                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">4×8 (ft): {product.piezas_lamina_4x8 || '-'} <span className="px-1 text-slate-300">|</span> 2×1 (m): {product.piezas_lamina_2x1 || '-'}</td>
                                         <td className="px-4 py-3 text-slate-600">{product.acabado || '-'}</td>
                                     </tr>
                                 );
                             })}
                         </tbody>
                     </table>
+                </div>
                 </div>
             </section>
             {summaryProductCandidates.length > 10 && (
@@ -522,8 +839,8 @@ export const Products = () => {
                 <>
 
             {/* Search and Filters bar */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-wrap gap-4 items-center">
-                <div className="relative flex-1 min-w-[300px]">
+            <div className="flex w-full min-w-0 flex-col items-stretch gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm lg:flex-row lg:flex-wrap lg:items-center">
+                <div className="relative w-full min-w-0 lg:flex-1 lg:min-w-[260px]">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
                         type="text"
@@ -533,11 +850,11 @@ export const Products = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto">
                     <select
                         value={clientFilter}
                         onChange={e => setClientFilter(e.target.value)}
-                        className="px-4 py-2 rounded-xl border bg-gray-50"
+                        className="w-full min-w-0 rounded-xl border bg-gray-50 px-4 py-2 sm:flex-1 sm:min-w-[180px] lg:w-auto lg:flex-none"
                     >
                         <option value="">Todos los clientes</option>
                         {clients.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
@@ -546,7 +863,7 @@ export const Products = () => {
                     <select
                         value={materialFilter}
                         onChange={e => setMaterialFilter(e.target.value)}
-                        className="px-4 py-2 rounded-xl border bg-gray-50"
+                        className="w-full min-w-0 rounded-xl border bg-gray-50 px-4 py-2 sm:flex-1 sm:min-w-[180px] lg:w-auto lg:flex-none"
                     >
                         <option value="">Todos los materiales</option>
                         {allMaterials.map(m => <option key={m} value={m}>{m}</option>)}
@@ -554,11 +871,11 @@ export const Products = () => {
 
                     <button
                         onClick={() => setSortByClientAsc(s => !s)}
-                        className="px-3 py-2 rounded-xl border bg-white text-sm"
+                        className="w-full min-w-0 rounded-xl border bg-white px-3 py-2 text-left text-sm sm:w-auto"
                     >
                         Ordenar por cliente: {sortByClientAsc ? 'ASC' : 'OFF'}
                     </button>
-                    <label className="flex items-center gap-2 cursor-pointer bg-gray-50 px-3 py-2 rounded-xl border">
+                    <label className="flex min-w-0 items-center gap-2 rounded-xl border bg-gray-50 px-3 py-2 sm:w-auto">
                         <input
                             type="checkbox"
                             checked={showInactive}
@@ -568,7 +885,7 @@ export const Products = () => {
                         <span className="text-sm font-medium text-gray-700">Mostrar inactivos</span>
                     </label>
                 </div>
-                <div className="text-sm text-gray-500 font-medium ml-auto">
+                <div className="w-full text-right text-sm font-medium text-gray-500 lg:ml-auto lg:w-auto">
                     Mostrando <strong>{filteredProducts.length}</strong> productos
                 </div>
             </div>
@@ -695,167 +1012,268 @@ export const Products = () => {
 
             {/* All other modals (Detail, Stock, OT, Edit) go here... */}
 
-            {/* CREATE PRODUCT MODAL */}
-            {showCreateModal && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] shadow-xl max-w-2xl w-full flex flex-col max-h-[100vh] lg:max-h-[90vh] overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-brand-600 p-3 rounded-2xl">
-                                    <Plus className="w-6 h-6" />
-                                </div>
-                                <h3 className="text-2xl font-black">Crear Nuevo Producto</h3>
-                            </div>
-                            <button onClick={() => setShowCreateModal(false)} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+            <SideDrawer
+                open={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                title="Crear nuevo producto"
+                description="Completa la información base del producto y guarda los cambios sin recargar la página."
+                size="lg"
+            >
+                <form onSubmit={handleCreateProduct} className="space-y-6">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Nombre del Producto</label>
+                            <input
+                                type="text"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.nombre_producto}
+                                onChange={e => setNewProductData({ ...newProductData, nombre_producto: e.target.value })}
+                            />
                         </div>
-
-                        <div className="flex-1 overflow-y-auto p-10">
-                            <form onSubmit={handleCreateProduct} className="space-y-6">
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="col-span-2">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={newProductData.nombre_producto}
-                                            onChange={e => setNewProductData({ ...newProductData, nombre_producto: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
-                                            value={newProductData.sku_producto}
-                                            onChange={e => setNewProductData({ ...newProductData, sku_producto: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
-                                        <select
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={newProductData.cliente_id}
-                                            onChange={e => setNewProductData({ ...newProductData, cliente_id: e.target.value })}
-                                        >
-                                            <option value="">Seleccionar Cliente</option>
-                                            {clients.map(c => (
-                                                <option key={c.id} value={c.id}>{c.nombre}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={newProductData.acabado}
-                                            onChange={e => setNewProductData({ ...newProductData, acabado: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
-                                        <input
-                                            type="number"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={newProductData.ancho_tira}
-                                            onChange={e => setNewProductData({ ...newProductData, ancho_tira: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={newProductData.medidas_pieza}
-                                            onChange={e => setNewProductData({ ...newProductData, medidas_pieza: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={newProductData.empaque_de}
-                                            onChange={e => setNewProductData({ ...newProductData, empaque_de: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
-                                        <input
-                                            type="number"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={newProductData.precio_venta}
-                                            onChange={e => setNewProductData({ ...newProductData, precio_venta: e.target.value })}
-                                            placeholder="0.00"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Mínimo</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={newProductData.stock_minimo}
-                                            onChange={e => setNewProductData({ ...newProductData, stock_minimo: e.target.value })}
-                                            placeholder="Sin parametrizar"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Máximo</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={newProductData.stock_maximo}
-                                            onChange={e => setNewProductData({ ...newProductData, stock_maximo: e.target.value })}
-                                            placeholder="Sin parametrizar"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-4 pt-4">
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">SKU</label>
+                            <input
+                                type="text"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-mono text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.sku_producto}
+                                onChange={e => setNewProductData({ ...newProductData, sku_producto: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Cliente</label>
+                            <select
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.cliente_id}
+                                onChange={e => setNewProductData({ ...newProductData, cliente_id: e.target.value })}
+                            >
+                                <option value="">Seleccionar Cliente</option>
+                                {clients.map(c => (
+                                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Acabado</label>
+                            <input
+                                type="text"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.acabado}
+                                onChange={e => setNewProductData({ ...newProductData, acabado: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Ancho Tira (mm)</label>
+                            <input
+                                type="number"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.ancho_tira}
+                                onChange={e => setNewProductData({ ...newProductData, ancho_tira: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Dimensiones (mm)</label>
+                            <input
+                                type="text"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.medidas_pieza}
+                                onChange={e => setNewProductData({ ...newProductData, medidas_pieza: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Fuerza de Troquelado (Ton / Peso del golpe requerido)</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.fuerza_troquelado}
+                                onChange={e => setNewProductData({ ...newProductData, fuerza_troquelado: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Piezas obtenidas por Lámina 4x8 (ft)</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.piezas_lamina_4x8}
+                                onChange={e => setNewProductData({ ...newProductData, piezas_lamina_4x8: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Piezas obtenidas por Lámina 2x1 (m)</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.piezas_lamina_2x1}
+                                onChange={e => setNewProductData({ ...newProductData, piezas_lamina_2x1: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Empaque de</label>
+                            <input
+                                type="text"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.empaque_de}
+                                onChange={e => setNewProductData({ ...newProductData, empaque_de: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Precio de Venta</label>
+                            <input
+                                type="number"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.precio_venta}
+                                onChange={e => setNewProductData({ ...newProductData, precio_venta: e.target.value })}
+                                placeholder="0.00"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Stock Mínimo</label>
+                            <input
+                                type="number"
+                                min="0"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.stock_minimo}
+                                onChange={e => setNewProductData({ ...newProductData, stock_minimo: e.target.value })}
+                                placeholder="Sin parametrizar"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Stock Máximo</label>
+                            <input
+                                type="number"
+                                min="0"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={newProductData.stock_maximo}
+                                onChange={e => setNewProductData({ ...newProductData, stock_maximo: e.target.value })}
+                                placeholder="Sin parametrizar"
+                            />
+                        </div>
+                        <div className="sm:col-span-2" onPaste={(event) => handleImagePasteFromClipboard(event, (file) => setNewProductImageFile(file))}>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Imagen del Producto (opcional) · Ctrl + V para pegar</label>
+                            {newProductImageFile && (
+                                <div className="relative mb-2 h-28 w-full overflow-hidden rounded-xl border border-slate-200">
+                                    <img src={URL.createObjectURL(newProductImageFile)} className="h-full w-full object-cover" />
                                     <button
                                         type="button"
-                                        onClick={() => setShowCreateModal(false)}
-                                        className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
+                                        onClick={() => setNewProductImageFile(undefined)}
+                                        className="absolute right-1 top-1 rounded-full bg-red-500 p-1 text-white"
+                                        aria-label="Quitar imagen seleccionada"
                                     >
-                                        CANCELAR
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
-                                    >
-                                        CREAR PRODUCTO
+                                        <X className="h-3 w-3" />
                                     </button>
                                 </div>
-                            </form>
+                            )}
+                            <div className="grid grid-cols-2 gap-2">
+                                {Capacitor.isNativePlatform() && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const file = await capturePhotoFromCamera('producto');
+                                            if (file) setNewProductImageFile(file);
+                                        }}
+                                        className="flex items-center justify-center gap-2 rounded-xl border-2 border-blue-100 bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-600 transition hover:border-blue-400"
+                                    >
+                                        <Camera className="h-4 w-4" /> Tomar Foto
+                                    </button>
+                                )}
+                                {Capacitor.isNativePlatform() && <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const file = await pickPhotoFromGallery('producto');
+                                        if (file) setNewProductImageFile(file);
+                                    }}
+                                    className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-500 transition hover:border-brand-500"
+                                >
+                                    <ImageIcon className="h-4 w-4" /> {newProductImageFile ? 'Cambiar' : 'Galería'}
+                                </button>}
+                            </div>
+                            {!Capacitor.isNativePlatform() && (
+                                <>
+                                    <input
+                                        type="file"
+                                        id="new-product-image"
+                                        accept="image/*"
+                                        onChange={e => setNewProductImageFile(e.target.files?.[0])}
+                                        className="hidden"
+                                    />
+                                    <label htmlFor="new-product-image" className="mt-2 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-500 transition hover:border-brand-500">
+                                        <Upload className="h-4 w-4" /> Subir Imagen
+                                    </label>
+                                </>
+                            )}
+                        </div>
+                        <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+                            <label htmlFor="new-product-pdf" className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-500">Plano técnico PDF (opcional)</label>
+                            <input
+                                type="file"
+                                id="new-product-pdf"
+                                accept="application/pdf,.pdf"
+                                onChange={e => {
+                                    const input = e.currentTarget;
+                                    const file = input.files?.[0];
+                                    input.value = '';
+                                    if (!file) return;
+                                    if (!isProductPdf(file)) {
+                                        setNotice({ type: 'error', message: 'Selecciona un archivo PDF válido.' });
+                                        return;
+                                    }
+                                    if (file.size > MAX_PRODUCT_PDF_SIZE) {
+                                        setNotice({ type: 'error', message: 'El plano PDF no puede superar 24 MB.' });
+                                        return;
+                                    }
+                                    setNewProductPdfFile(file);
+                                    setNotice(null);
+                                }}
+                                className="block w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-brand-700"
+                            />
+                            {newProductPdfFile && (
+                                <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">
+                                    <span className="flex min-w-0 items-center gap-2 truncate"><FileText className="h-4 w-4 shrink-0" />{newProductPdfFile.name}</span>
+                                    <button type="button" onClick={() => setNewProductPdfFile(undefined)} className="shrink-0 rounded-lg p-1 text-red-600 hover:bg-red-100" aria-label="Quitar plano PDF"><X className="h-4 w-4" /></button>
+                                </div>
+                            )}
+                            <p className="mt-2 text-xs text-slate-500">El plano se guarda en el almacenamiento local del servidor. Tamaño máximo: 24 MB.</p>
                         </div>
                     </div>
-                </div>
-            )}
+
+                    <div className="flex gap-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowCreateModal(false)}
+                            className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-200"
+                        >
+                            CANCELAR
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isCreatingProduct}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-brand-100 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-75"
+                        >
+                            {isCreatingProduct ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    CREANDO...
+                                </>
+                            ) : (
+                                'CREAR PRODUCTO'
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </SideDrawer>
 
             {/* Other modals here... */}
             {showDetailModal && selectedProduct && (
-                <div id="printModalBackdrop" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 print:bg-white print:p-0">
-                    <style dangerouslySetInnerHTML={{
-                        __html: `
-                        @page { size: A4; margin: 12mm; }
-                        @media print {
-                            html, body { width: auto !important; height: auto !important; overflow: visible !important; }
-                            body * { visibility: hidden; }
-                            #printableArea, #printableArea * { visibility: visible; }
-                            #printModalBackdrop { position: static !important; inset: auto !important; display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; background: white !important; }
-                            #printableArea { position: static !important; width: 100% !important; max-width: none !important; height: auto !important; max-height: none !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; box-shadow: none; border: none; }
-                            #printableArea .overflow-y-auto, #printableArea .overflow-x-auto { overflow: visible !important; }
-                            #printableArea tr { break-inside: avoid; page-break-inside: avoid; }
-                            .print-hide { display: none !important; }
-                        }
-                    `}} />
-                    <div id="printableArea" className="bg-white rounded-none lg:rounded-[3rem] w-full max-w-[95vw] h-full lg:h-[95vh] flex flex-col overflow-hidden transition-all duration-500 print:overflow-visible print:max-h-none print:shadow-none print:rounded-none">
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5 print-hide">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6">
+                    <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl">
+                        <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-5 text-white sm:p-7">
                             <div className="flex items-center gap-6">
                                 <div className="bg-brand-600 p-4 rounded-3xl">
                                     <Package className="w-10 h-10" />
@@ -866,19 +1284,13 @@ export const Products = () => {
                                 </div>
                             </div>
                             <div className="flex gap-4">
-                                <button onClick={() => window.print()} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-600 hover:text-white transition flex items-center gap-2">
-                                    <FileText className="w-4 h-4" /> IMPRIMIR FICHA
+                                <button onClick={handlePrintProduct} className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 font-black text-xs text-brand-700 transition hover:bg-brand-50">
+                                    <FileText className="w-4 h-4" /> DESCARGAR FICHA PDF
                                 </button>
-                                <button onClick={() => setShowDetailModal(false)} className="p-4 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+                                <button onClick={() => setShowDetailModal(false)} className="rounded-full bg-white/10 p-3 transition hover:bg-white/20" aria-label="Cerrar ficha"><X /></button>
                             </div>
                         </div>
-                        {/* Print Header */}
-                        <div className="hidden print:block mb-8 text-center border-b-2 pb-4 border-gray-900">
-                            <h1 className="text-3xl font-black uppercase text-gray-900">Ficha Técnica de Procedimiento</h1>
-                            <h2 className="text-xl font-bold text-gray-700">{selectedProduct.nombre_producto}</h2>
-                            <p className="text-sm font-mono text-gray-500">SKU: {selectedProduct.sku_producto}</p>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-8 lg:p-12 bg-gray-50/50 print:overflow-visible print:p-0">
+                        <div className="flex-1 overflow-y-auto bg-slate-50/70 p-5 sm:p-8 lg:p-10">
                             <div className="flex flex-col md:flex-row gap-10">
                                 <div className="w-full md:w-1/2 aspect-square rounded-3xl bg-gray-100 overflow-hidden print:w-1/3 print:aspect-auto print:rounded-none print:bg-white print:overflow-visible print:break-inside-avoid">
                                     {selectedProduct.imagen_url ? (
@@ -888,7 +1300,7 @@ export const Products = () => {
                                     )}
                                 </div>
                                 <div className="w-full md:w-1/2 space-y-8">
-                                    <div className="grid grid-cols-2 gap-6">
+                                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                                         <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
                                             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Stock Actual</span>
                                             <span className="text-2xl font-black text-brand-600">{selectedProduct.stock_actual}</span>
@@ -919,6 +1331,10 @@ export const Products = () => {
                                             <span className="text-gray-500 font-medium flex items-center gap-2"><Layers className="w-4 h-4" /> Dimensiones:</span>
                                             <span className="font-bold">{selectedProduct.medidas_pieza || 'N/A'}</span>
                                         </div>
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                            <span className="text-gray-500 font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Fuerza de Troquelado:</span>
+                                            <span className="font-bold">{selectedProduct.fuerza_troquelado !== null && selectedProduct.fuerza_troquelado !== undefined ? `${selectedProduct.fuerza_troquelado} Ton` : 'N/A'}</span>
+                                        </div>
                                         <div className="flex items-center justify-between border-b pb-2 text-blue-600">
                                             <span className="text-gray-500 font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Piezas/Hora:</span>
                                             <span className="font-black">{selectedProduct.rutas && selectedProduct.rutas.length > 0 ? selectedProduct.rutas[0]?.piezas_por_hora_estimado : 'N/A'}</span>
@@ -926,12 +1342,12 @@ export const Products = () => {
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 flex flex-col items-center">
-                                            <span className="text-[10px] font-black text-blue-400 uppercase">Lámina 4x8</span>
+                                        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 flex flex-col items-center text-center">
+                                            <span className="text-[10px] font-black text-blue-400 uppercase">Piezas obtenidas por Lámina 4x8 (ft)</span>
                                             <span className="text-lg font-black text-blue-700">{selectedProduct.piezas_lamina_4x8 || '-'}</span>
                                         </div>
-                                        <div className="bg-purple-50/50 p-3 rounded-xl border border-purple-100 flex flex-col items-center">
-                                            <span className="text-[10px] font-black text-purple-400 uppercase">Lámina 2x1</span>
+                                        <div className="bg-purple-50/50 p-3 rounded-xl border border-purple-100 flex flex-col items-center text-center">
+                                            <span className="text-[10px] font-black text-purple-400 uppercase">Piezas obtenidas por Lámina 2x1 (m)</span>
                                             <span className="text-lg font-black text-purple-700">{selectedProduct.piezas_lamina_2x1 || '-'}</span>
                                         </div>
                                     </div>
@@ -1014,421 +1430,474 @@ export const Products = () => {
             )}
 
             {showStockModal && selectedProduct && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[2.5rem] shadow-xl max-w-md w-full overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-6 text-white flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-brand-600 p-2 rounded-xl">
-                                    <ArrowUpDown className="w-5 h-5" />
-                                </div>
-                                <h3 className="text-xl font-black">Ajustar Stock</h3>
-                            </div>
-                            <button onClick={() => setShowStockModal(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"><X className="w-5 h-5" /></button>
+                <SideDrawer
+                    open={showStockModal}
+                    onClose={() => setShowStockModal(false)}
+                    title="Ajustar stock"
+                    description={`Registra una entrada o salida para ${selectedProduct.nombre_producto}.`}
+                    size="md"
+                >
+                    <form onSubmit={handleStockAdjustment} className="space-y-6">
+                        <div className="flex p-1 bg-gray-100 rounded-xl">
+                            <button
+                                type="button"
+                                onClick={() => setStockType('entrada')}
+                                className={clsx(
+                                    "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
+                                    stockType === 'entrada' ? "bg-white text-green-600 shadow-sm" : "text-gray-400"
+                                )}
+                            >
+                                ENTRADA (+)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setStockType('salida')}
+                                className={clsx(
+                                    "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
+                                    stockType === 'salida' ? "bg-white text-red-600 shadow-sm" : "text-gray-400"
+                                )}
+                            >
+                                SALIDA (-)
+                            </button>
                         </div>
 
-                        <div className="p-8">
-                            <p className="text-gray-500 mb-6 text-sm">Registra una entrada o salida de inventario para: <br /><strong>{selectedProduct.nombre_producto}</strong></p>
-
-                            <form onSubmit={handleStockAdjustment} className="space-y-6">
-                                <div className="flex p-1 bg-gray-100 rounded-xl">
-                                    <button
-                                        type="button"
-                                        onClick={() => setStockType('entrada')}
-                                        className={clsx(
-                                            "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
-                                            stockType === 'entrada' ? "bg-white text-green-600 shadow-sm" : "text-gray-400"
-                                        )}
-                                    >
-                                        ENTRADA (+)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setStockType('salida')}
-                                        className={clsx(
-                                            "flex-1 py-2.5 rounded-lg text-sm font-bold transition",
-                                            stockType === 'salida' ? "bg-white text-red-600 shadow-sm" : "text-gray-400"
-                                        )}
-                                    >
-                                        SALIDA (-)
-                                    </button>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad de Piezas</label>
-                                    <input
-                                        type="number"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-xl"
-                                        value={stockQty}
-                                        onChange={e => setStockQty(e.target.value)}
-                                        placeholder="0"
-                                    />
-                                </div>
-
-                                <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
-                                    CONFIRMAR MOVIMIENTO
-                                </button>
-                            </form>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Cantidad de Piezas</label>
+                            <input
+                                type="number"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xl font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={stockQty}
+                                onChange={e => setStockQty(e.target.value)}
+                                placeholder="0"
+                            />
                         </div>
-                    </div>
-                </div>
+
+                        <button type="submit" className="w-full rounded-2xl bg-brand-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-brand-100 transition hover:bg-brand-700">
+                            CONFIRMAR MOVIMIENTO
+                        </button>
+                    </form>
+                </SideDrawer>
             )}
 
             {showOTModal && selectedProduct && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[2.5rem] shadow-xl max-w-md w-full overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-6 text-white flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-brand-600 p-2 rounded-xl">
-                                    <ShoppingCart className="w-5 h-5" />
-                                </div>
-                                <h3 className="text-xl font-black">Lanzar Producción</h3>
-                            </div>
-                            <button onClick={() => {
-                                setShowOTModal(false);
-                                setOtQty('');
-                                setOtDate('');
-                                setSheetQty('');
-                            }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"><X className="w-5 h-5" /></button>
+                <SideDrawer
+                    open={showOTModal}
+                    onClose={() => {
+                        setShowOTModal(false);
+                        setOtQty('');
+                        setOtDate('');
+                        setSheetQty('');
+                    }}
+                    title="Lanzar producción"
+                    description={`Crea una orden para ${selectedProduct.nombre_producto}.`}
+                    size="md"
+                >
+                    <div className="mb-6 flex items-center gap-4 rounded-2xl border border-brand-100 bg-brand-50 p-4">
+                        <div className="h-16 w-16 overflow-hidden rounded-xl bg-white shrink-0">
+                            <img src={selectedProduct.imagen_url ? getAssetUrl(selectedProduct.imagen_url) : ''} className="h-full w-full object-cover" />
                         </div>
-
-                        <div className="p-8">
-
-                            <div className="bg-brand-50 p-4 rounded-2xl mb-8 flex items-center gap-4 border border-brand-100">
-                                <div className="w-16 h-16 rounded-xl overflow-hidden bg-white shrink-0">
-                                    <img src={selectedProduct.imagen_url ? getAssetUrl(selectedProduct.imagen_url) : ''} className="w-full h-full object-cover" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-brand-900 line-clamp-1">{selectedProduct.nombre_producto}</h4>
-                                    <p className="text-xs font-medium text-brand-600 uppercase tracking-wide">{selectedProduct.cliente?.nombre}</p>
-                                </div>
-                            </div>
-
-                            <form onSubmit={handleCreateOT} className="space-y-6">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Número de láminas</label>
-                                        <input
-                                            type="number"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={sheetQty}
-                                            onChange={e => {
-                                                const val = e.target.value;
-                                                setSheetQty(val);
-                                                if (val) {
-                                                    const piezasXlaminaStr = sheetType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
-                                                    // Extract number from string like "40 piezas" or "40"
-                                                    const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
-                                                    if (factor > 0) {
-                                                        setOtQty((parseInt(val) * factor).toString());
-                                                    }
-                                                }
-                                            }}
-                                            placeholder="Opcional"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Tipo Lámina</label>
-                                        <select
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold text-sm"
-                                            value={sheetType}
-                                            onChange={e => {
-                                                const newType = e.target.value as '4x8' | '2x1';
-                                                setSheetType(newType);
-                                                if (sheetQty) {
-                                                    const piezasXlaminaStr = newType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
-                                                    const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
-                                                    if (factor > 0) {
-                                                        setOtQty((parseInt(sheetQty) * factor).toString());
-                                                    }
-                                                }
-                                            }}
-                                        >
-                                            <option value="4x8">4' x 8' ({selectedProduct?.piezas_lamina_4x8 || '?'})</option>
-                                            <option value="2x1">2' x 1' ({selectedProduct?.piezas_lamina_2x1 || '?'})</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cantidad a fabricar</label>
-                                    <input
-                                        type="number"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={otQty}
-                                        onChange={e => setOtQty(e.target.value)}
-                                        placeholder="Cantidad"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Fecha Estimada Entrega</label>
-                                    <input
-                                        type="date"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                        value={otDate}
-                                        onChange={e => setOtDate(e.target.value)}
-                                    />
-                                </div>
-
-                                <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-brand-100 hover:bg-brand-700 transition">
-                                    LANZAR PRODUCCIÓN
-                                </button>
-                            </form>
+                        <div>
+                            <h4 className="font-bold text-brand-900 line-clamp-1">{selectedProduct.nombre_producto}</h4>
+                            <p className="text-xs font-medium uppercase tracking-wide text-brand-600">{selectedProduct.cliente?.nombre}</p>
                         </div>
                     </div>
-                </div>
+
+                    <form onSubmit={handleCreateOT} className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Número de láminas</label>
+                                <input
+                                    type="number"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={sheetQty}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setSheetQty(val);
+                                        if (val) {
+                                            const piezasXlaminaStr = sheetType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
+                                            const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
+                                            if (factor > 0) {
+                                                setOtQty((parseInt(val) * factor).toString());
+                                            }
+                                        }
+                                    }}
+                                    placeholder="Opcional"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Tipo Lámina</label>
+                                <select
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={sheetType}
+                                    onChange={e => {
+                                        const newType = e.target.value as '4x8' | '2x1';
+                                        setSheetType(newType);
+                                        if (sheetQty) {
+                                            const piezasXlaminaStr = newType === '4x8' ? selectedProduct?.piezas_lamina_4x8 : selectedProduct?.piezas_lamina_2x1;
+                                            const factor = parseInt(piezasXlaminaStr?.replace(/[^0-9]/g, '') || '0');
+                                            if (factor > 0) {
+                                                setOtQty((parseInt(sheetQty) * factor).toString());
+                                            }
+                                        }
+                                    }}
+                                >
+                                    <option value="4x8">4' x 8' ({selectedProduct?.piezas_lamina_4x8 || '?'})</option>
+                                    <option value="2x1">2' x 1' ({selectedProduct?.piezas_lamina_2x1 || '?'})</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Cantidad a fabricar</label>
+                            <input
+                                type="number"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={otQty}
+                                onChange={e => setOtQty(e.target.value)}
+                                placeholder="Cantidad"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Fecha Estimada Entrega</label>
+                            <input
+                                type="date"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={otDate}
+                                onChange={e => setOtDate(e.target.value)}
+                            />
+                        </div>
+
+                        <button type="submit" className="w-full rounded-2xl bg-brand-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-brand-100 transition hover:bg-brand-700">
+                            LANZAR PRODUCCIÓN
+                        </button>
+                    </form>
+                </SideDrawer>
             )}
 
             {showEditModal && selectedProduct && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] shadow-xl max-w-2xl w-full flex flex-col max-h-[100vh] lg:max-h-[90vh] overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-brand-600 p-3 rounded-2xl">
-                                    <Edit3 className="w-6 h-6" />
-                                </div>
-                                <h3 className="text-2xl font-black">Editar Producto</h3>
+                <SideDrawer
+                    open={showEditModal}
+                    onClose={() => setShowEditModal(false)}
+                    title="Editar producto"
+                    description="Actualiza los datos principales, imagen y materiales del producto."
+                    size= "lg"
+                >
+                    <form onSubmit={handleEditProduct} className="space-y-6">
+                        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex items-center gap-3">
+                                <div className={clsx("h-3 w-3 rounded-full", editData.activo ? "bg-green-500" : "bg-gray-300")}></div>
+                                <span className="font-bold text-slate-700">{editData.activo ? "Producto Visible" : "Producto Oculto"}</span>
                             </div>
-                            <button onClick={() => setShowEditModal(false)} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+                            <button
+                                type="button"
+                                onClick={() => setEditData({ ...editData, activo: !editData.activo })}
+                                className={clsx(
+                                    "rounded-xl px-4 py-2 text-xs font-black transition",
+                                    editData.activo ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-green-100 text-green-600 hover:bg-green-200"
+                                )}
+                            >
+                                {editData.activo ? "OCULTAR PRODUCTO" : "MOSTRAR PRODUCTO"}
+                            </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-10">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Nombre del Producto</label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.nombre_producto}
+                                    onChange={e => setEditData({ ...editData, nombre_producto: e.target.value })}
+                                />
+                            </div>
 
-                            <form onSubmit={handleEditProduct} className="space-y-6">
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="col-span-2 flex justify-between items-center bg-gray-50 p-4 rounded-2xl border">
-                                        <div className="flex items-center gap-3">
-                                            <div className={clsx("w-3 h-3 rounded-full", editData.activo ? "bg-green-500" : "bg-gray-300")}></div>
-                                            <span className="font-bold text-gray-700">{editData.activo ? "Producto Visible" : "Producto Oculto"}</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditData({ ...editData, activo: !editData.activo })}
-                                            className={clsx(
-                                                "px-4 py-2 rounded-xl text-xs font-black transition",
-                                                editData.activo ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-green-100 text-green-600 hover:bg-green-200"
-                                            )}
-                                        >
-                                            {editData.activo ? "OCULTAR PRODUCTO" : "MOSTRAR PRODUCTO"}
+                            <div className="sm:col-span-2" onPaste={(event) => handleImagePasteFromClipboard(event, (file) => setEditData({ ...editData, imageFile: file }))}>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Imagen del Producto · Ctrl + V para pegar</label>
+                                {editData.imageFile && (
+                                    <div className="relative mb-2 h-24 w-full overflow-hidden rounded-xl border border-slate-200">
+                                        <img src={URL.createObjectURL(editData.imageFile)} className="h-full w-full object-cover" />
+                                        <button type="button" onClick={() => setEditData({ ...editData, imageFile: undefined })} className="absolute right-1 top-1 rounded-full bg-red-500 p-0.5 text-white">
+                                            <X className="h-3 w-3" />
                                         </button>
                                     </div>
-                                    <div className="col-span-2">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Nombre del Producto</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={editData.nombre_producto}
-                                            onChange={e => setEditData({ ...editData, nombre_producto: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="col-span-1">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Imagen del Producto</label>
-                                        <div className="flex items-center gap-3">
-                                            <input
-                                                type="file"
-                                                id="product-image"
-                                                accept="image/*"
-                                                onChange={e => setEditData({ ...editData, imageFile: e.target.files ? e.target.files[0] : undefined })}
-                                                className="hidden"
-                                            />
-                                            <label htmlFor="product-image" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
-                                                <Upload className="w-4 h-4" /> {editData.imageFile ? 'Imagen Listas' : 'Cargar Imagen'}
-                                            </label>
-                                        </div>
-                                    </div>
-                                    <div className="col-span-1">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Plano PDF</label>
-                                        <div className="flex items-center gap-3">
-                                            <input
-                                                type="file"
-                                                id="product-pdf"
-                                                accept="application/pdf"
-                                                onChange={e => setEditData({ ...editData, pdfFile: e.target.files ? e.target.files[0] : undefined })}
-                                                className="hidden"
-                                            />
-                                            <label htmlFor="product-pdf" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold transition">
-                                                <FileText className="w-4 h-4" /> {editData.pdfFile ? 'PDF Listo' : 'Cargar Plano'}
-                                            </label>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">SKU</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 font-mono text-sm"
-                                            value={editData.sku_producto}
-                                            onChange={e => setEditData({ ...editData, sku_producto: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Cliente</label>
-                                        <select
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={editData.cliente_id}
-                                            onChange={e => setEditData({ ...editData, cliente_id: e.target.value })}
+                                )}
+                                <div className="grid grid-cols-2 gap-2">
+                                    {Capacitor.isNativePlatform() && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => { const f = await capturePhotoFromCamera('producto'); if (f) setEditData({ ...editData, imageFile: f }); }}
+                                            className="flex items-center justify-center gap-2 rounded-xl border-2 border-blue-100 bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-600 transition hover:border-blue-400"
                                         >
-                                            <option value="">Seleccionar Cliente</option>
-                                            {clients.map(c => (
-                                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                                            <Camera className="h-4 w-4" /> Tomar Foto
+                                        </button>
+                                    )}
+                                    {Capacitor.isNativePlatform() && <button
+                                        type="button"
+                                        onClick={async () => { const f = await pickPhotoFromGallery('producto'); if (f) setEditData({ ...editData, imageFile: f }); }}
+                                        className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-500 transition hover:border-brand-500"
+                                    >
+                                        <ImageIcon className="h-4 w-4" /> {editData.imageFile ? 'Cambiar' : 'Galería'}
+                                    </button>}
+                                </div>
+                                {!Capacitor.isNativePlatform() && (
+                                    <>
+                                        <input type="file" id="product-image" accept="image/*" onChange={e => setEditData({ ...editData, imageFile: e.target.files ? e.target.files[0] : undefined })} className="hidden" />
+                                        <label htmlFor="product-image" className="mt-2 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-500 transition hover:border-brand-500">
+                                            <Upload className="h-4 w-4" /> Subir Imagen
+                                        </label>
+                                    </>
+                                )}
+                            </div>
+                            <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+                                <label htmlFor="edit-product-pdf" className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-500">Plano técnico PDF</label>
+                                {selectedProduct.plano_pdf_url && (
+                                    <a
+                                        href={getAssetUrl(selectedProduct.plano_pdf_url)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="mb-3 inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"
+                                    >
+                                        <FileText className="h-4 w-4" /> Ver plano guardado
+                                    </a>
+                                )}
+                                <input
+                                    type="file"
+                                    id="edit-product-pdf"
+                                    accept="application/pdf,.pdf"
+                                    onChange={e => {
+                                        const input = e.currentTarget;
+                                        const file = input.files?.[0];
+                                        input.value = '';
+                                        if (!file) return;
+                                        if (!isProductPdf(file)) {
+                                            setNotice({ type: 'error', message: 'Selecciona un archivo PDF válido.' });
+                                            return;
+                                        }
+                                        if (file.size > MAX_PRODUCT_PDF_SIZE) {
+                                            setNotice({ type: 'error', message: 'El plano PDF no puede superar 24 MB.' });
+                                            return;
+                                        }
+                                        setEditData({ ...editData, pdfFile: file });
+                                        setNotice(null);
+                                    }}
+                                    className="block w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-brand-700"
+                                />
+                                {editData.pdfFile && (
+                                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">
+                                        <span className="flex min-w-0 items-center gap-2 truncate"><FileText className="h-4 w-4 shrink-0" />{editData.pdfFile.name}</span>
+                                        <button type="button" onClick={() => setEditData({ ...editData, pdfFile: undefined })} className="shrink-0 rounded-lg p-1 text-red-600 hover:bg-red-100" aria-label="Quitar plano PDF"><X className="h-4 w-4" /></button>
+                                    </div>
+                                )}
+                                <p className="mt-2 text-xs text-slate-500">El archivo nuevo reemplaza el plano asociado y se guarda localmente en el servidor (máximo 24 MB).</p>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">SKU</label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-mono text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.sku_producto}
+                                    onChange={e => setEditData({ ...editData, sku_producto: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Cliente</label>
+                                <select
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.cliente_id}
+                                    onChange={e => setEditData({ ...editData, cliente_id: e.target.value })}
+                                >
+                                    <option value="">Seleccionar Cliente</option>
+                                    {clients.map(c => (
+                                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Acabado</label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.acabado}
+                                    onChange={e => setEditData({ ...editData, acabado: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Ancho Tira (mm)</label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.ancho_tira}
+                                    onChange={e => setEditData({ ...editData, ancho_tira: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Dimensiones (mm)</label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.medidas_pieza}
+                                    onChange={e => setEditData({ ...editData, medidas_pieza: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Fuerza de Troquelado (Ton / Peso del golpe requerido)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.fuerza_troquelado}
+                                    onChange={e => setEditData({ ...editData, fuerza_troquelado: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Piezas obtenidas por Lámina 4x8 (ft)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.piezas_lamina_4x8}
+                                    onChange={e => setEditData({ ...editData, piezas_lamina_4x8: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Piezas obtenidas por Lámina 2x1 (m)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.piezas_lamina_2x1}
+                                    onChange={e => setEditData({ ...editData, piezas_lamina_2x1: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Empaque de</label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.empaque_de}
+                                    onChange={e => setEditData({ ...editData, empaque_de: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Precio de Venta</label>
+                                <input
+                                    type="number"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.precio_venta}
+                                    onChange={e => setEditData({ ...editData, precio_venta: e.target.value })}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Stock Mínimo</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.stock_minimo}
+                                    onChange={e => setEditData({ ...editData, stock_minimo: e.target.value })}
+                                    placeholder="Sin parametrizar"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-400">Stock Máximo</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                    value={editData.stock_maximo}
+                                    onChange={e => setEditData({ ...editData, stock_maximo: e.target.value })}
+                                    placeholder="Sin parametrizar"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 border-t border-slate-200 pt-6">
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400">Materiales Requeridos</label>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const firstMP = allMateriaPrima[0];
+                                        if (firstMP) {
+                                            setEditData({
+                                                ...editData,
+                                                materials: [...(editData.materials || []), { materia_prima_id: firstMP.id, nombre_mp: firstMP.nombre_mp, cantidad_requerida: 1 }]
+                                            });
+                                        }
+                                    }}
+                                    className="text-xs font-black text-brand-600 hover:underline"
+                                >
+                                    + AGREGAR MATERIAL
+                                </button>
+                            </div>
+                            <div className="space-y-2">
+                                {(editData.materials || []).map((m: any, idx: number) => (
+                                    <div key={idx} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                        <select
+                                            className="flex-1 bg-transparent text-sm font-bold text-slate-800 outline-none"
+                                            value={m.materia_prima_id}
+                                            onChange={e => {
+                                                const newMats = [...editData.materials];
+                                                newMats[idx].materia_prima_id = Number(e.target.value);
+                                                setEditData({ ...editData, materials: newMats });
+                                            }}
+                                        >
+                                            {allMateriaPrima.map(mp => (
+                                                <option key={mp.id} value={mp.id}>{mp.nombre_mp} ({mp.sku_mp})</option>
                                             ))}
                                         </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Acabado</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={editData.acabado}
-                                            onChange={e => setEditData({ ...editData, acabado: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Ancho Tira (mm)</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={editData.ancho_tira}
-                                            onChange={e => setEditData({ ...editData, ancho_tira: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Dimensiones (mm)</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={editData.medidas_pieza}
-                                            onChange={e => setEditData({ ...editData, medidas_pieza: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Empaque de</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            value={editData.empaque_de}
-                                            onChange={e => setEditData({ ...editData, empaque_de: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Precio de Venta</label>
                                         <input
                                             type="number"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={editData.precio_venta}
-                                            onChange={e => setEditData({ ...editData, precio_venta: e.target.value })}
-                                            placeholder="0.00"
+                                            className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center text-sm font-bold text-slate-800"
+                                            value={m.cantidad_requerida}
+                                            onChange={e => {
+                                                const newMats = [...editData.materials];
+                                                newMats[idx].cantidad_requerida = e.target.value;
+                                                setEditData({ ...editData, materials: newMats });
+                                            }}
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const newMats = editData.materials.filter((_: any, i: number) => i !== idx);
+                                                setEditData({ ...editData, materials: newMats });
+                                            }}
+                                            className="rounded p-1 text-red-500 transition hover:bg-red-100"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </button>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Mínimo</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={editData.stock_minimo}
-                                            onChange={e => setEditData({ ...editData, stock_minimo: e.target.value })}
-                                            placeholder="Sin parametrizar"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Stock Máximo</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none font-bold"
-                                            value={editData.stock_maximo}
-                                            onChange={e => setEditData({ ...editData, stock_maximo: e.target.value })}
-                                            placeholder="Sin parametrizar"
-                                        />
-                                    </div>
-
-                                    <div className="col-span-2 space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400">Materiales Requeridos (Materia Prima)</label>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const firstMP = allMateriaPrima[0];
-                                                    if (firstMP) {
-                                                        setEditData({
-                                                            ...editData,
-                                                            materials: [...(editData.materials || []), { materia_prima_id: firstMP.id, nombre_mp: firstMP.nombre_mp, cantidad_requerida: 1 }]
-                                                        });
-                                                    }
-                                                }}
-                                                className="text-brand-600 text-xs font-black hover:underline"
-                                            >
-                                                + AGREGAR MATERIAL
-                                            </button>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {(editData.materials || []).map((m: any, idx: number) => (
-                                                <div key={idx} className="flex gap-3 items-center bg-gray-50 p-3 rounded-xl border">
-                                                    <select
-                                                        className="flex-1 bg-transparent font-bold text-sm outline-none"
-                                                        value={m.materia_prima_id}
-                                                        onChange={e => {
-                                                            const newMats = [...editData.materials];
-                                                            newMats[idx].materia_prima_id = Number(e.target.value);
-                                                            setEditData({ ...editData, materials: newMats });
-                                                        }}
-                                                    >
-                                                        {allMateriaPrima.map(mp => (
-                                                            <option key={mp.id} value={mp.id}>{mp.nombre_mp} ({mp.sku_mp})</option>
-                                                        ))}
-                                                    </select>
-                                                    <input
-                                                        type="number"
-                                                        className="w-20 bg-white px-2 py-1 rounded border text-center font-bold"
-                                                        value={m.cantidad_requerida}
-                                                        onChange={e => {
-                                                            const newMats = [...editData.materials];
-                                                            newMats[idx].cantidad_requerida = e.target.value;
-                                                            setEditData({ ...editData, materials: newMats });
-                                                        }}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newMats = editData.materials.filter((_: any, i: number) => i !== idx);
-                                                            setEditData({ ...editData, materials: newMats });
-                                                        }}
-                                                        className="p-1 text-red-500 hover:bg-red-100 rounded"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-4 pt-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowEditModal(false)}
-                                        className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black transition hover:bg-gray-200"
-                                    >
-                                        CANCELAR
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="flex-1 bg-brand-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-100 hover:bg-brand-700 transition"
-                                    >
-                                        GUARDAR CAMBIOS
-                                    </button>
-                                </div>
-                            </form>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                </div>
+
+                        <div className="flex gap-3 pt-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowEditModal(false)}
+                                className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-200"
+                            >
+                                CANCELAR
+                            </button>
+                            <button
+                                type="submit"
+                                className="flex-1 rounded-xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-brand-100 transition hover:bg-brand-700"
+                            >
+                                GUARDAR CAMBIOS
+                            </button>
+                        </div>
+                    </form>
+                </SideDrawer>
             )}
 
             {/* PDF VIEWER MODAL */}
@@ -1468,222 +1937,186 @@ export const Products = () => {
             )}
             {/* KARDEX MODAL */}
             {showKardexModal && selectedProduct && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] shadow-xl max-w-2xl w-full h-full lg:h-[85vh] flex flex-col overflow-hidden transition-all duration-500">
-                        {/* Premium Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-brand-600 p-3 rounded-2xl text-white">
-                                    <History className="w-6 h-6" />
-                                </div>
-                                <div>
-                                    <h3 className="text-2xl font-black">Historial de Movimientos</h3>
-                                    <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1">{selectedProduct.nombre_producto}</p>
-                                </div>
+                <SideDrawer
+                    open={showKardexModal}
+                    onClose={() => setShowKardexModal(false)}
+                    title="Historial de movimientos"
+                    description={selectedProduct.nombre_producto}
+                    size="md"
+                >
+                    <div className="space-y-3">
+                        {movements.length === 0 ? (
+                            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 py-20 text-center">
+                                <Package className="mx-auto mb-3 h-12 w-12 text-slate-200" />
+                                <p className="font-bold text-slate-400">No hay movimientos registrados para este producto.</p>
                             </div>
-                            <button onClick={() => setShowKardexModal(false)} className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50">
-                            {movements.length === 0 ? (
-                                <div className="text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
-                                    <Package className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-                                    <p className="text-gray-400 font-bold">No hay movimientos registrados para este producto.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {movements.map((m) => (
-                                        <div key={m.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:border-brand-200 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={clsx(
-                                                    "w-10 h-10 rounded-xl flex items-center justify-center",
-                                                    m.tipo_movimiento === 'entrada' ? "bg-green-50 text-green-600" :
-                                                        m.tipo_movimiento === 'salida' ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
-                                                )}>
-                                                    {m.tipo_movimiento === 'entrada' ? <Plus className="w-5 h-5" /> :
-                                                        m.tipo_movimiento === 'salida' ? <X className="w-5 h-5" /> : <ArrowUpDown className="w-5 h-5" />}
-                                                </div>
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={clsx(
-                                                            "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                                                            m.tipo_movimiento === 'entrada' ? "bg-green-100 text-green-700" :
-                                                                m.tipo_movimiento === 'salida' ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
-                                                        )}>
-                                                            {m.tipo_movimiento}
-                                                        </span>
-                                                        <span className="text-xs text-gray-400 font-bold">{new Date(m.fecha).toLocaleString()}</span>
-                                                    </div>
-                                                    <p className="text-sm font-bold text-gray-700 mt-1">{m.referencia || 'Ajuste de inventario'}</p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <span className={clsx(
-                                                    "text-lg font-black",
-                                                    m.tipo_movimiento === 'entrada' ? "text-green-600" :
-                                                        m.tipo_movimiento === 'salida' ? "text-red-600" : "text-blue-600"
-                                                )}>
-                                                    {m.tipo_movimiento === 'salida' ? '-' : '+'}{m.cantidad}
-                                                </span>
-                                                <p className="text-[10px] text-gray-300 font-bold uppercase tracking-tight">Piezas</p>
-                                            </div>
+                        ) : (
+                            movements.map((m) => (
+                                <div key={m.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 transition-colors hover:border-brand-200">
+                                    <div className="flex items-center gap-4">
+                                        <div className={clsx(
+                                            "flex h-10 w-10 items-center justify-center rounded-xl",
+                                            m.tipo_movimiento === 'entrada' ? "bg-green-50 text-green-600" :
+                                                m.tipo_movimiento === 'salida' ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
+                                        )}>
+                                            {m.tipo_movimiento === 'entrada' ? <Plus className="h-5 w-5" /> :
+                                                m.tipo_movimiento === 'salida' ? <X className="h-5 w-5" /> : <ArrowUpDown className="h-5 w-5" />}
                                         </div>
-                                    ))}
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className={clsx(
+                                                    "rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-widest",
+                                                    m.tipo_movimiento === 'entrada' ? "bg-green-100 text-green-700" :
+                                                        m.tipo_movimiento === 'salida' ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                                                )}>
+                                                    {m.tipo_movimiento}
+                                                </span>
+                                                <span className="text-xs font-bold text-slate-400">{new Date(m.fecha).toLocaleString()}</span>
+                                            </div>
+                                            <p className="mt-1 text-sm font-bold text-slate-700">{m.referencia || 'Ajuste de inventario'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className={clsx(
+                                            "text-lg font-black",
+                                            m.tipo_movimiento === 'entrada' ? "text-green-600" :
+                                                m.tipo_movimiento === 'salida' ? "text-red-600" : "text-blue-600"
+                                        )}>
+                                            {m.tipo_movimiento === 'salida' ? '-' : '+'}{m.cantidad}
+                                        </span>
+                                        <p className="text-[10px] font-bold uppercase tracking-tight text-slate-300">Piezas</p>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-
-                        <div className="mt-6 pt-6 border-t border-gray-100">
-                            <button
-                                onClick={() => setShowKardexModal(false)}
-                                className="w-full bg-gray-100 text-gray-600 py-3 rounded-xl font-black hover:bg-gray-200 transition"
-                            >
-                                CERRAR HISTORIAL
-                            </button>
-                        </div>
+                            ))
+                        )}
                     </div>
-                </div>
+                </SideDrawer>
             )}
 
             {/* ROUTE MODAL */}
             {showRouteModal && selectedProduct && (
-                <div className="fixed inset-0 bg-slate-900/90 shadow-2xl backdrop-blur-md z-[120] flex items-center justify-center p-0 lg:p-4">
-                    <div className="bg-white rounded-none lg:rounded-[3rem] w-full max-w-5xl h-full lg:h-[90vh] flex flex-col overflow-hidden transition-all duration-500">
-                        {/* Modal Header */}
-                        <div className="bg-slate-900 bg-gradient-to-r from-slate-950 via-slate-900 to-brand-800 p-8 text-white flex justify-between items-center border-b border-white/5">
-                            <div className="flex items-center gap-6">
-                                <div className="bg-brand-600 p-4 rounded-3xl">
-                                    <Activity className="w-10 h-10" />
-                                </div>
-                                <div>
-                                    <h2 className="text-3xl font-black tracking-tight">Ruta de Producción</h2>
-                                    <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1">
-                                        {selectedProduct.nombre_producto} • SKU: {selectedProduct.sku_producto}
-                                    </p>
-                                </div>
+                <SideDrawer
+                    open={showRouteModal}
+                    onClose={() => setShowRouteModal(false)}
+                    title="Ruta de producción"
+                    description={`${selectedProduct.nombre_producto} • SKU: ${selectedProduct.sku_producto}`}
+                    size="lg"
+                >
+                    <form onSubmit={handleUpdateRoutes} className="space-y-6">
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-12 gap-4 rounded-xl bg-slate-50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                <div className="col-span-1">No.</div>
+                                <div className="col-span-4">Operación</div>
+                                <div className="col-span-3">Centro</div>
+                                <div className="col-span-2">Pzs/Hora</div>
+                                <div className="col-span-1">T. Est</div>
+                                <div className="col-span-1 text-center">Acción</div>
                             </div>
-                            <button onClick={() => setShowRouteModal(false)} className="p-4 bg-white/10 hover:bg-white/20 rounded-full transition"><X /></button>
+
+                            <div className="space-y-3">
+                                {routesData.map((r, idx) => (
+                                    <div key={idx} className="grid grid-cols-12 items-center gap-4 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm transition hover:border-brand-200">
+                                        <div className="col-span-1 text-center font-mono text-sm font-bold text-brand-600">{r.no}</div>
+                                        <div className="col-span-4">
+                                            <input
+                                                type="text"
+                                                required
+                                                className="w-full rounded-xl border-none bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-800 outline-none transition focus:ring-2 focus:ring-brand-100"
+                                                value={r.nombre}
+                                                onChange={e => {
+                                                    const newRoutes = [...routesData];
+                                                    newRoutes[idx].nombre = e.target.value;
+                                                    setRoutesData(newRoutes);
+                                                }}
+                                                placeholder="Ej: Corte, Troquelado..."
+                                            />
+                                        </div>
+                                        <div className="col-span-3">
+                                            <input
+                                                type="text"
+                                                required
+                                                className="w-full rounded-xl border-none bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-800 outline-none transition focus:ring-2 focus:ring-brand-100"
+                                                value={r.centro}
+                                                onChange={e => {
+                                                    const newRoutes = [...routesData];
+                                                    newRoutes[idx].centro = e.target.value;
+                                                    setRoutesData(newRoutes);
+                                                }}
+                                                placeholder="Ej: Cizalla, Prensa..."
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <input
+                                                type="number"
+                                                className="w-full rounded-xl border-none bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-800 outline-none transition focus:ring-2 focus:ring-brand-100"
+                                                value={r.piezas_hora}
+                                                onChange={e => {
+                                                    const newRoutes = [...routesData];
+                                                    newRoutes[idx].piezas_hora = e.target.value;
+                                                    setRoutesData(newRoutes);
+                                                }}
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div className="col-span-1">
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                className="w-full rounded-xl border-none bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-800 outline-none transition focus:ring-2 focus:ring-brand-100"
+                                                value={r.tiempo_estandar}
+                                                onChange={e => {
+                                                    const newRoutes = [...routesData];
+                                                    newRoutes[idx].tiempo_estandar = e.target.value;
+                                                    setRoutesData(newRoutes);
+                                                }}
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                        <div className="col-span-1 text-center">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newRoutes = routesData.filter((_, i) => i !== idx);
+                                                    setRoutesData(newRoutes);
+                                                }}
+                                                className="rounded-xl p-2 text-red-400 transition hover:bg-red-50 hover:text-red-600"
+                                            >
+                                                <Trash2 className="h-5 w-5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const lastNo = routesData.length > 0 ? routesData[routesData.length - 1].no : 0;
+                                    setRoutesData([...routesData, { id: undefined, no: lastNo + 10, nombre: '', centro: '', piezas_hora: '', tiempo_estandar: '' }]);
+                                }}
+                                className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-200 py-4 font-black text-slate-400 transition hover:border-brand-500 hover:text-brand-600"
+                            >
+                                <Plus className="h-5 w-5" /> AGREGAR OPERACIÓN A LA RUTA
+                            </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50">
-
-                            <form onSubmit={handleUpdateRoutes} className="space-y-6">
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-gray-50 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                        <div className="col-span-1">No.</div>
-                                        <div className="col-span-4">Operación</div>
-                                        <div className="col-span-3">Centro de Trabajo</div>
-                                        <div className="col-span-2">Pzs/Hora</div>
-                                        <div className="col-span-1">T. Est (min)</div>
-                                        <div className="col-span-1 text-center">Acción</div>
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        {routesData.map((r, idx) => (
-                                            <div key={idx} className="grid grid-cols-12 gap-4 items-center bg-white p-3 rounded-2xl border border-gray-100 hover:border-brand-200 transition shadow-sm">
-                                                <div className="col-span-1 font-mono font-bold text-brand-600 text-center">{r.no}</div>
-                                                <div className="col-span-4">
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                        value={r.nombre}
-                                                        onChange={e => {
-                                                            const newRoutes = [...routesData];
-                                                            newRoutes[idx].nombre = e.target.value;
-                                                            setRoutesData(newRoutes);
-                                                        }}
-                                                        placeholder="Ej: Corte, Troquelado..."
-                                                    />
-                                                </div>
-                                                <div className="col-span-3">
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                        value={r.centro}
-                                                        onChange={e => {
-                                                            const newRoutes = [...routesData];
-                                                            newRoutes[idx].centro = e.target.value;
-                                                            setRoutesData(newRoutes);
-                                                        }}
-                                                        placeholder="Ej: Cizalla, Prensa..."
-                                                    />
-                                                </div>
-                                                <div className="col-span-2">
-                                                    <input
-                                                        type="number"
-                                                        className="w-full px-4 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                        value={r.piezas_hora}
-                                                        onChange={e => {
-                                                            const newRoutes = [...routesData];
-                                                            newRoutes[idx].piezas_hora = e.target.value;
-                                                            setRoutesData(newRoutes);
-                                                        }}
-                                                        placeholder="0"
-                                                    />
-                                                </div>
-                                                <div className="col-span-1">
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="w-full px-3 py-2.5 rounded-xl border-none bg-gray-50 font-bold text-sm focus:ring-2 focus:ring-brand-500 transition"
-                                                        value={r.tiempo_estandar}
-                                                        onChange={e => {
-                                                            const newRoutes = [...routesData];
-                                                            newRoutes[idx].tiempo_estandar = e.target.value;
-                                                            setRoutesData(newRoutes);
-                                                        }}
-                                                        placeholder="0.00"
-                                                    />
-                                                </div>
-                                                <div className="col-span-1 text-center">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newRoutes = routesData.filter((_, i) => i !== idx);
-                                                            setRoutesData(newRoutes);
-                                                        }}
-                                                        className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition"
-                                                    >
-                                                        <Trash2 className="w-5 h-5" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const lastNo = routesData.length > 0 ? routesData[routesData.length - 1].no : 0;
-                                            setRoutesData([...routesData, { id: undefined, no: lastNo + 10, nombre: '', centro: '', piezas_hora: '', tiempo_estandar: '' }]);
-                                        }}
-                                        className="w-full py-4 rounded-2xl border-2 border-dashed border-gray-100 text-gray-400 hover:border-brand-500 hover:text-brand-600 font-black flex items-center justify-center gap-3 transition group"
-                                    >
-                                        <Plus className="w-5 h-5 group-hover:scale-125 transition-transform" /> AGREGAR OPERACIÓN A LA RUTA
-                                    </button>
-                                </div>
-
-                                <div className="flex gap-4 pt-8 border-t border-gray-100 bg-white p-8">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowRouteModal(false)}
-                                        className="flex-1 bg-gray-100 text-gray-500 py-5 rounded-[1.5rem] font-black hover:bg-gray-200 transition"
-                                    >
-                                        CANCELAR
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="flex-1 bg-brand-600 text-white py-5 rounded-[1.5rem] font-black shadow-xl shadow-brand-100 hover:bg-brand-700 transition transform hover:scale-[1.02] active:scale-95"
-                                    >
-                                        GUARDAR RUTA DE FABRICACIÓN
-                                    </button>
-                                </div>
-                            </form>
+                        <div className="flex gap-3 border-t border-slate-200 pt-6">
+                            <button
+                                type="button"
+                                onClick={() => setShowRouteModal(false)}
+                                className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-200"
+                            >
+                                CANCELAR
+                            </button>
+                            <button
+                                type="submit"
+                                className="flex-1 rounded-[1.5rem] bg-brand-600 px-4 py-5 text-sm font-black text-white shadow-xl shadow-brand-100 transition hover:bg-brand-700"
+                            >
+                                GUARDAR RUTA DE FABRICACIÓN
+                            </button>
                         </div>
-                    </div>
-                </div>
+                    </form>
+                </SideDrawer>
             )}
         </div>
     );

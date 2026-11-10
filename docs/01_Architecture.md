@@ -1,65 +1,133 @@
 # 01. Arquitectura del Sistema - Control MT
 
-Control MT es un sistema de gestión de producción (ERP/MES) diseñado para optimizar el control de inventarios, órdenes de trabajo, mantenimiento y proyectos especiales en una planta metalmecánica.
+Control MT es un ERP/MES para gestión industrial y de producción. Su objetivo es centralizar inventario, personal, maquinaria, órdenes de trabajo, proyectos especiales, calidad, mantenimiento y trazabilidad operativa en una sola solución.
 
-## Stack Tecnológico
+## Stack tecnológico actual
 
 ### Backend
-- **Entorno**: Node.js v18+ 
-- **Framework**: Express.js (TypeScript)
-- **Base de Datos**: SQLite
-- **ORM**: Prisma
-- **Autenticación**: JWT (JsonWebToken)
-- **CORS**: Configurado para dominios específicos (Vercel, localhost, IP local)
-- **Manejo de Archivos**: Multer para subida de imágenes. Cloudinary para almacenamiento en la nube.
+- Node.js + TypeScript
+- Express 5
+- Prisma ORM
+- PostgreSQL
+- JWT para autenticación
+- CORS y middleware de seguridad
+- Multer para cargas; fotos de productos en disco local y otros archivos/documentos en Cloudinary
 
 ### Frontend
-- **Librería**: React.js 18
-- **Construcción**: Vite
-- **Mobile Persistence**: @capacitor-community/sqlite (Offline-First)
-- **Capa de Datos**: Repositorios (Patrón Repository) para abstracción de fuente.
-- **Sincronización**: Sync Queue (Cola de cambios atómica)
-- **Estilos**: Tailwind CSS 4.0
-- **Iconos**: Lucide React
-- **Estado**: Zustand (Tiendas ligeras y reactivas)
-- **Gráficos**: Recharts
-- **PDFs**: jsPDF / jsPDF-AutoTable (para reportes de OT)
+- React 18 + TypeScript
+- Vite
+- Zustand para estado global
+- Tailwind CSS 4
+- Axios para llamadas HTTP
+- Recharts, jsPDF, XLSX para reportes y analítica
+- Capacitor para soporte móvil nativo
 
----
+### Base de datos
+- PostgreSQL como motor principal
+- Prisma como capa de acceso y migraciones
+- Variables de entorno por entorno (`DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL`, Cloudinary)
 
-## Arquitectura de Capas
+> Nota: la versión actual del proyecto se ejecuta con PostgreSQL. Las referencias antiguas a SQLite deben considerarse obsoletas para el backend de producción.
 
-### Backend (src/)
-1. **Controllers**: Gestionan la lógica de negocio y las respuestas HTTP.
-2. **Routes**: Definen los endpoints de la API (ej. `/api/orders`, `/api/inventory`).
-3. **Services**: Abstraen lógica compleja reutilizable (ej. utilidades de Cloudinary).
-4. **Middleware**: Validaciones, autenticación y procesamiento de archivos.
-5. **Utils**: Funciones de ayuda compartidas.
+## Arquitectura general
 
-### Frontend (src/)
-1. **Pages**: Vistas principales de la aplicación.
-2. **Components**: UI reutilizable (Modales, Tablas, Layouts).
-3. **Repositories**: Abstraen el acceso a datos. Detectan si la plataforma es nativa para usar SQLite o axios.
-4. **Services**: Servicios core como `databaseService` (SQLite) y `syncQueueService`.
-5. **Store**: Gestión de estado global mediante Zustand, ahora delegando la persistencia a los Repositorios.
-6. **Api**: Configuración de Axios para peticiones directas al backend (usado principalmente en Web).
+```text
+Navegador / App Web / App Móvil
+        │
+        ▼
+   Frontend React
+   - páginas y dashboards
+   - repositorios y stores
+   - exportación PDF/XLSX
+   - sincronización movil/offline
+        │
+        ▼
+   Backend Express / TypeScript
+   - autenticación JWT
+   - rutas REST por módulo
+   - validaciones y servicios
+   - almacenamiento local para fotos de productos e integración con Cloudinary para otras cargas
+        │
+        ▼
+   PostgreSQL + Prisma
+   - usuarios, inventario, OT, clientes, productos
+   - proyectos, herramientas, mantenimiento
+   - calidad, personal y finanzas
+```
 
----
+## Capacidades del sistema
 
-## Flujo de Datos
-1. El usuario interactúa con la interfaz (React).
-2. Se disparan acciones en las tiendas de **Zustand**.
-3. Las tiendas realizan peticiones `HTTP` vía **Axios** al backend.
-4. El backend (Express) valida la sesión via `JWT`.
-5. El **Controller** procesa la solicitud usando **Prisma** para interactuar con **SQLite**.
-6. La respuesta viaja de vuelta al frontend para actualizar la UI.
-## Arquitectura Híbrida Offline-First
+### 1. Capa de presentación
+El frontend se organiza por módulos funcionales y reutiliza componentes visuales para tablas, formularios, filtros y dashboards.
 
-Control MT utiliza una arquitectura híbrida que se adapta al entorno de ejecución:
+### 2. Capa de negocio
+El backend centraliza la lógica de negocio en rutas y controladores, separando responsabilidades y dejando la persistencia en Prisma.
 
-1.  **Entorno Web**: La aplicación funciona de manera tradicional, realizando peticiones HTTP directas a la API del backend.
-2.  **Entorno Móvil (Capacitor)**:
-    -   **Persistencia Local**: Los datos se almacenan en una base de datos SQLite local dentro del dispositivo.
-    -   **Operatividad Offline**: El usuario puede crear OTs, registrar movimientos de inventario y completar tareas sin conexión a internet.
-    -   **Cola de Sincronización (Sync Queue)**: Cada cambio local se registra en una cola. Cuando se detecta conexión, el sistema intenta sincronizar estos cambios de forma atómica y ordenada con el servidor.
-    -   **Conflictos**: Se utiliza una estrategia de "Última escritura gana" con marcas de tiempo para resolver conflictos básicos de sincronización.
+### 3. Capa de datos
+Prisma expone los modelos de negocio sobre PostgreSQL y coordina migraciones, validaciones y acceso a datos.
+
+## Estructura del repositorio
+
+```text
+backend/
+  src/
+    controllers/
+    routes/
+    middleware/
+    services/
+    utils/
+    server.ts
+    index.ts
+  prisma/
+    schema.prisma
+    migrations/
+  public/
+  uploads/
+  package.json
+
+frontend/
+  src/
+  public/
+  package.json
+  vite.config.ts
+
+docs/
+  01_Architecture.md
+  02_Database.md
+  ...
+```
+
+## Flujo de datos
+
+1. El usuario interactúa con la UI web o móvil.
+2. El frontend consulta o envía datos mediante Axios o repositorios.
+3. El backend valida autenticación, permisos y entrada.
+4. Los controladores usan Prisma para consultar o persistir datos en PostgreSQL.
+5. Se emiten respuestas JSON y recursos estáticos (imágenes, PDFs, archivos adjuntos).
+6. En entorno móvil, se usa sincronización local con cola de cambios y envío posterior al servidor.
+
+## Modo de despliegue
+
+El proyecto soporta varios patrones de despliegue:
+
+- Web estándar en servidor propio
+- Docker Compose para backend y base de datos
+- Nginx como proxy inverso para frontend y API
+- LAN local con IP privada para equipos del taller
+- Supabase como entorno de datos migrado/alternativo para validación o transición
+
+## Observaciones de arquitectura
+
+- La API se publica por endpoint REST bajo `/api/*`.
+- El frontend se sirve como aplicación SPA con Vite.
+- Las fotos de productos se almacenan en `backend/uploads/products`; otros archivos se guardan en Cloudinary o en rutas públicas del backend según el caso.
+- Las credenciales y secretos deben permanecer fuera del repositorio y gestionados por entorno.
+- La app usa una arquitectura híbrida: web estándar y móvil con capacidades offline donde aplica.
+
+## Referencias de implementación
+
+- `backend/src/server.ts`
+- `backend/prisma/schema.prisma`
+- `frontend/src/`
+- `backend/package.json`
+- `frontend/package.json`

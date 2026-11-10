@@ -2,6 +2,19 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma';
 
+export const getCurrentUser = async (req: Request & { user?: { id: number } }, res: Response) => {
+    try {
+        const user = await prisma.usuario.findUnique({
+            where: { id: req.user?.id },
+            select: { id: true, nombre: true, email: true, rol: true, permisos: true }
+        });
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+        res.json(user);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al obtener el usuario', details: error.message });
+    }
+};
+
 export const getUsers = async (req: Request, res: Response) => {
     try {
         const users = await prisma.usuario.findMany({

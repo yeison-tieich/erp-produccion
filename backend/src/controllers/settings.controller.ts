@@ -45,9 +45,39 @@ export const updateSettings = async (req: Request, res: Response) => {
 };
 
 // USER SETTINGS
+const THEME_FIELDS = [
+    'tema',
+    'color_primario',
+    'color_secundario',
+    'color_superficie',
+    'color_borde',
+    'color_texto'
+] as const;
+
+const getAdministratorTheme = async () => {
+    const administrator = await prisma.usuario.findFirst({
+        where: { rol: 'Administrador' },
+        orderBy: { id: 'asc' },
+        select: { id: true, configuracion: true }
+    });
+
+    if (!administrator) return null;
+
+    const settings = administrator.configuracion ??
+        await prisma.configuracionUsuario.create({ data: { usuario_id: administrator.id } });
+
+    return Object.fromEntries(THEME_FIELDS.map(field => [field, settings[field]]));
+};
+
 export const getUserSettings = async (req: any, res: Response) => {
     const userId = req.user.id;
     try {
+        const user = await prisma.usuario.findUnique({
+            where: { id: userId },
+            select: { rol: true }
+        });
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
         let userConfig = await prisma.configuracionUsuario.findUnique({
             where: { usuario_id: userId }
         });
@@ -57,8 +87,11 @@ export const getUserSettings = async (req: any, res: Response) => {
                 data: { usuario_id: userId }
             });
         }
-        res.json(userConfig);
+
+        const administratorTheme = user.rol === 'Administrador' ? null : await getAdministratorTheme();
+        res.json({ ...userConfig, ...(administratorTheme ?? {}) });
     } catch (error) {
+        console.error('Error fetching user settings:', error);
         res.status(500).json({ error: 'Error fetching user settings' });
     }
 };
@@ -66,16 +99,36 @@ export const getUserSettings = async (req: any, res: Response) => {
 export const updateUserSettings = async (req: any, res: Response) => {
     const userId = req.user.id;
     try {
+        const user = await prisma.usuario.findUnique({
+            where: { id: userId },
+            select: { rol: true }
+        });
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        const data = user.rol === 'Administrador'
+            ? req.body
+            : {
+                ...(req.body.notificaciones_app !== undefined && {
+                    notificaciones_app: req.body.notificaciones_app
+                }),
+                ...(req.body.notificaciones_email !== undefined && {
+                    notificaciones_email: req.body.notificaciones_email
+                })
+            };
+
         const result = await prisma.configuracionUsuario.upsert({
             where: { usuario_id: userId },
-            update: req.body,
+            update: data,
             create: {
-                ...req.body,
+                ...data,
                 usuario_id: userId
             }
         });
-        res.json(result);
+
+        const administratorTheme = user.rol === 'Administrador' ? null : await getAdministratorTheme();
+        res.json({ ...result, ...(administratorTheme ?? {}) });
     } catch (error) {
+        console.error('Error updating user settings:', error);
         res.status(500).json({ error: 'Error updating user settings' });
     }
 };

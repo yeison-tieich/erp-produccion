@@ -23,15 +23,36 @@ import {
   updateFase,
   transitionFase,
   addFase,
-  deleteFase
+  deleteFase,
+  syncPieces
 } from '../controllers/specialProjects.controller';
 
 const router = Router();
 
-// Configure Multer for file uploads
-const storage = multer.memoryStorage();
+// Configure Multer for file uploads with persistent disk storage in uploads/special-projects
+const specialProjectsDir = path.resolve(__dirname, '../../uploads/special-projects');
+if (!fs.existsSync(specialProjectsDir)) {
+  fs.mkdirSync(specialProjectsDir, { recursive: true });
+}
 
-const upload = multer({ storage });
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    if (!fs.existsSync(specialProjectsDir)) {
+      fs.mkdirSync(specialProjectsDir, { recursive: true });
+    }
+    cb(null, specialProjectsDir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${uniqueSuffix}${ext}`);
+  }
+});
+
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 }
+});
 
 router.get('/', authenticateToken, getProyectos);
 router.get('/:id', authenticateToken, getProyecto);
@@ -66,6 +87,7 @@ router.post('/:id/attachments', authenticateToken, authorizeRole(['Administrador
 // Piece Management
 router.get('/:id/pieces', authenticateToken, getPieces);
 router.post('/:id/pieces/bulk', authenticateToken, authorizeRole(['Administrador', 'Supervisor']), addPiecesBulk);
+router.put('/:id/pieces/sync', authenticateToken, authorizeRole(['Administrador', 'Supervisor']), syncPieces);
 router.post(
   '/:id/pieces', 
   authenticateToken,

@@ -4,6 +4,8 @@ Procedimiento para compilar en Windows y desplegar en el servidor Linux `192.168
 
 ## Estado conocido y precauciones
 
+> **Estado vigente:** las notas históricas con fecha 2026-10-05 que siguen en esta sección registran el corte inicial y no deben interpretarse como el estado actual de migraciones. La publicación posterior del 2026-10-20 está documentada en [09_Registro_Cambios_Despliegue_2026-10-20.md](./09_Registro_Cambios_Despliegue_2026-10-20.md): la migración de calidad ya se aplicó, el esquema está al día y la versión anterior del frontend se conserva para rollback.
+
 - Verificación SSH del 2026-10-05: el Compose activo está en `/opt/mecaytro/docker-compose.yml`; sus servicios son `mecaytro-db` y `mecaytro-backend`.
 - El backend original reiniciaba porque ejecutaba `dist/index.js`, pero el build solo generaba `dist/server.js`. Se añadió `src/index.ts` y se reconstruyó el backend; después Prisma falló porque faltaba OpenSSL en Alpine. Se instaló OpenSSL en las etapas builder y runner. Actualmente el backend responde HTTP 200, Prisma conecta a `mecaytro_db` y el contenedor reportó cero reinicios en la verificación.
 - El PostgreSQL existente es versión 16 y conserva datos en el bind mount `/opt/mecaytro/postgres_data:/var/lib/postgresql/data`. No reutilizar esa carpeta con PostgreSQL 18 ni eliminarla.
@@ -14,11 +16,26 @@ Procedimiento para compilar en Windows y desplegar en el servidor Linux `192.168
 - El backend está configurado para `mecaytro_supabase_prod`; el preflight Prisma reporta `Database schema is up to date!`, el API devuelve HTTP 200 y el contenedor permanece `running` sin reinicios.
 - El `.env` anterior y el Compose anterior se conservaron como `/opt/mecaytro/.env.before-supabase-cutover-2026-10-05` y `/opt/mecaytro/docker-compose.yml.before-supabase-cutover-2026-10-05`. También se guardó `/opt/mecaytro/.env.before-lan-frontend-2026-10-05` antes de agregar `FRONTEND_URL`.
 - El frontend/Nginx se desplegó con el overlay `/opt/mecaytro/frontend/docker-compose.frontend-lan.yml`, conectado a la red existente `mecaytro_mecaytro-network`. Desde el PC de desarrollo se verificó `http://192.168.20.100/` con HTTP 200 y el preflight API con HTTP 204/CORS correcto.
+- Al copiar builds desde Windows por SCP, comprobar que Nginx pueda atravesar los directorios y leer los assets. Si no, ejecutar `chmod -R a+rX /opt/mecaytro/frontend/dist`; de lo contrario, el fallback de SPA puede responder `index.html` con MIME `text/html` para una petición `.js`.
 - Consultar los logs cuando sea necesario: `docker logs --tail 200 mecaytro-backend`.
 - El dump disponible es SQL plano, generado con `pg_dump 18.4` desde PostgreSQL 17.6. La configuración de este proyecto usa PostgreSQL 18 para importarlo con compatibilidad de versión.
 - El contenedor antiguo se debe respaldar y renombrar, nunca eliminar durante el primer corte. No ejecutar `docker compose down -v`, `docker volume prune` ni comandos de borrado de volúmenes.
 - El backup disponible declara esquemas gestionados por Supabase (`auth`, `storage`, `vault`, `realtime`, entre otros) y extensiones como `supabase_vault`. **No importarlo directamente** al PostgreSQL estándar del Compose. Generar desde Supabase una exportación solo de `public`, sin propietarios ni ACL; conservar el dump original intacto.
-- Imágenes y documentos ya almacenados en Cloudinary continúan referenciados por sus URL. No se descargan ni se migran al contenedor. Se deben configurar las credenciales de Cloudinary en el backend.
+- Las imágenes y documentos existentes en Cloudinary continúan referenciados por sus URL y no se migran automáticamente. Los planos PDF nuevos o reemplazados desde Productos se guardan localmente en `backend/uploads/products/plans`; los planos antiguos de Cloudinary siguen disponibles hasta que se reemplacen. Se deben conservar las credenciales de Cloudinary para los otros módulos que todavía usan ese servicio.
+
+## Publicación verificada del 2026-10-20
+
+La aplicación se actualizó en `srv-mecaytro` (`192.168.20.100`) mediante SSH, manteniendo la arquitectura Docker existente. Esta publicación no sustituyó PostgreSQL 16 ni cambió el Compose de la migración Supabase:
+
+- Backend y frontend permanecen en sus contenedores actuales; PostgreSQL continúa siendo `postgres:16-alpine` con su bind mount persistente.
+- Se preservó un respaldo custom de la base en `/opt/mecaytro/backups/mecaytro-predeploy-20261020-1142.dump` y una copia en el PC de despliegue. El SHA-256 de ambas copias coincide: `23b4609a11c7aca9d8a7223462acef7ae248ec1d65d7d93cafdb0d4c939eae7a`.
+- Se aplicó `20261019_quality_controls` con `prisma migrate deploy`. La comprobación posterior reportó cuatro migraciones encontradas y `Database schema is up to date!`.
+- El backend se compiló dentro de Docker y se recreó sin modificar la configuración de PostgreSQL.
+- El frontend se publicó en `/opt/mecaytro/frontend/dist`. La versión anterior quedó preservada en `/opt/mecaytro/frontend/dist.previous-20261020-1142-current`.
+- Después de la publicación, las carpetas del build recibieron permisos de lectura/tránsito para Nginx. El error MIME de JavaScript se corrigió y se endureció `nginx.conf`: `/` e `/index.html` no se cachean, `/assets/` no aplica fallback a la SPA y los assets válidos usan caché inmutable.
+- Verificación desde la LAN: página `200`, JavaScript `200` con `application/javascript`, CSS `200` con `text/css`, asset inexistente `404`. La API responde `401` en una ruta de calidad sin token, comportamiento esperado de autenticación.
+
+Para el listado funcional y técnico completo, cambios del esquema, componentes publicados, limitaciones detectadas y rollback, consultar [09_Registro_Cambios_Despliegue_2026-10-20.md](./09_Registro_Cambios_Despliegue_2026-10-20.md).
 
 ## 1. Exportar desde Supabase en Windows
 
@@ -86,6 +103,12 @@ scp -r backend\prisma\migrations adminmecaytro@192.168.20.100:~/mecaytro/backend
 scp -r frontend\src frontend\public adminmecaytro@192.168.20.100:~/mecaytro/frontend/
 scp frontend\package.json frontend\package-lock.json frontend\tsconfig.json frontend\tsconfig.node.json frontend\vite.config.ts frontend\index.html frontend\Dockerfile frontend\nginx.conf frontend\.env.production adminmecaytro@192.168.20.100:~/mecaytro/frontend/
 scp docker-compose.yml .dockerignore adminmecaytro@192.168.20.100:~/mecaytro/
+```
+
+Después de transferir un build del frontend a su directorio de publicación en el servidor, asegurar permisos de lectura/tránsito antes de recrear Nginx:
+
+```bash
+chmod -R a+rX /opt/mecaytro/frontend/dist
 ```
 
 Copiar el SQL filtrado que se creó desde Supabase:

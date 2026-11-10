@@ -31,9 +31,18 @@ export const login = async (req: Request, res: Response) => {
     const token = jwt.sign(
       { id: user.id, rol: user.rol, nombre: user.nombre },
       process.env.JWT_SECRET || 'fallback-secret-for-dev-only',
-      { expiresIn: '1d' }
+      { expiresIn: '20h' }
     );
-    res.json({ token, user: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email,
+        rol: user.rol,
+        permisos: user.permisos
+      }
+    });
   } catch (error: any) {
     console.error('Error in login:', error);
     res.status(500).json({ error: 'Error logging in', details: error.message });

@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "migrate:product-pdfs": "ts-node --transpile-only scripts/migrate-product-pdfs-to-cloudinary.ts",
+    "migrate:product-images": "ts-node --transpile-only scripts/migrate-product-images-to-local.ts",
     "postinstall": "prisma generate",
     "seed:all": "npx ts-node prisma/seed.ts && npx ts-node prisma/seed-personal.ts && npx ts-node prisma/seed-machines.ts && npx ts-node prisma/seed-operations.ts && node prisma/seed.js",
     "seed:export": "node scripts/generate_seed.js"

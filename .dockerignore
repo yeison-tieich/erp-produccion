@@ -5,12 +5,15 @@
 **/.env
 **/.env.*
 !backend/.env.production.example
+backend/uploads
+backend/backups
 backend/prisma/*.db
 backend/prisma/*.db.*
 backend/prisma/data_dump.json
 backend/prisma/productos-data.csv
 backend/prisma/dev.sqbpro
 **/*.sql
+!backend/prisma/migrations/**/migration.sql
 **/*.dump
 frontend/android
 frontend/.gradle

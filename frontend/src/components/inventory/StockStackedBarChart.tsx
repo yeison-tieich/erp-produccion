@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     Legend, ResponsiveContainer, Cell
@@ -80,6 +80,16 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const StockStackedBarChart: React.FC<Props> = ({ data, loading, searchTerm, filterEstado }) => {
+    const [hideMaterialNames, setHideMaterialNames] = useState(false);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(max-width: 640px)');
+        const updateVisibility = () => setHideMaterialNames(mediaQuery.matches);
+        updateVisibility();
+        mediaQuery.addEventListener('change', updateVisibility);
+        return () => mediaQuery.removeEventListener('change', updateVisibility);
+    }, []);
+
     const filtered = useMemo(() => {
         let d = data || [];
         if (searchTerm) d = d.filter(i => i.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -127,6 +137,7 @@ export const StockStackedBarChart: React.FC<Props> = ({ data, loading, searchTer
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
                     <XAxis
                         dataKey="nombre"
+                        hide={hideMaterialNames}
                         tick={{ fill: '#94a3b8', fontSize: filtered.length > 12 ? 10 : 12 }}
                         angle={filtered.length > 8 ? -35 : 0}
                         textAnchor={filtered.length > 8 ? 'end' : 'middle'}

@@ -9,7 +9,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import axios from 'axios';
 import { API_URL, getAssetUrl } from '../../api';
-import { qualityService, Inspection, ControlPlan } from '../../services/qualityService';
+import { qualityService, Inspection, ControlPlan, MeasurementInstrument } from '../../services/qualityService';
 
 export const InspectionsPage = () => {
     const [inspections, setInspections] = useState<Inspection[]>([]);
@@ -29,6 +29,9 @@ export const InspectionsPage = () => {
     const [suppliers, setSuppliers] = useState<any[]>([]);
     const [personalList, setPersonalList] = useState<any[]>([]);
     const [controlPlans, setControlPlans] = useState<ControlPlan[]>([]);
+    const [instruments, setInstruments] = useState<MeasurementInstrument[]>([]);
+    const [showInstrumentModal, setShowInstrumentModal] = useState(false);
+    const [instrumentForm, setInstrumentForm] = useState({ codigo: '', nombre: '', tipo: 'CALIBRADOR', fecha_vencimiento: '', certificado_calibracion: '' });
 
     const [formTipo, setFormTipo] = useState<'RECEPCION' | 'EN_PROCESO' | 'FINAL' | 'DESPACHO' | 'ESPECIAL'>('FINAL');
     const [formOTId, setFormOTId] = useState<string>('');
@@ -45,6 +48,7 @@ export const InspectionsPage = () => {
     const [measurements, setMeasurements] = useState<Array<{
         caracteristica_id?: number;
         nombre_caracteristica: string;
+        instrumento_id?: number;
         cota_nominal?: number;
         tolerancia_min?: number;
         tolerancia_max?: number;
@@ -72,18 +76,20 @@ export const InspectionsPage = () => {
 
     const fetchRelatedData = async () => {
         try {
-            const [ordersRes, prodsRes, suppRes, persRes, plansRes] = await Promise.all([
+            const [ordersRes, prodsRes, suppRes, persRes, plansRes, instrumentsRes] = await Promise.all([
                 axios.get(`${API_URL}/orders`),
                 axios.get(`${API_URL}/products`),
                 qualityService.getSuppliers(),
                 axios.get(`${API_URL}/personal`),
-                qualityService.getControlPlans()
+                qualityService.getControlPlans(),
+                qualityService.getMeasurementInstruments()
             ]);
             setOrders(ordersRes.data || []);
             setProducts(prodsRes.data || []);
             setSuppliers(suppRes || []);
             setPersonalList(persRes.data || []);
             setControlPlans(plansRes || []);
+            setInstruments(instrumentsRes || []);
         } catch (e) {
             console.error('Error fetching related data:', e);
         }
@@ -200,6 +206,10 @@ export const InspectionsPage = () => {
 
     const handleSaveInspection = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (measurements.some(measurement => !measurement.instrumento_id)) {
+            alert('Selecciona un instrumento registrado con calibración vigente para cada medición.');
+            return;
+        }
         try {
             const payload = {
                 tipo: formTipo,
@@ -219,6 +229,7 @@ export const InspectionsPage = () => {
                     tolerancia_min: m.tolerancia_min,
                     tolerancia_max: m.tolerancia_max,
                     instrumento: m.instrumento,
+                    instrumento_id: m.instrumento_id,
                     valores_medidos: m.valores_input.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n))
                 }))
             };
@@ -231,7 +242,17 @@ export const InspectionsPage = () => {
         }
     };
 
-
+    const handleCreateInstrument = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const instrument = await qualityService.createMeasurementInstrument(instrumentForm);
+            setInstruments(current => [...current, instrument]);
+            setShowInstrumentModal(false);
+            setInstrumentForm({ codigo: '', nombre: '', tipo: 'CALIBRADOR', fecha_vencimiento: '', certificado_calibracion: '' });
+        } catch (error: any) {
+            alert(error.response?.data?.error || 'No fue posible registrar el instrumento.');
+        }
+    };
 
     // PDF Report Generator
     const generateInspectionPDF = (insp: Inspection) => {
@@ -613,6 +634,13 @@ export const InspectionsPage = () => {
                                     </h3>
                                     <button
                                         type="button"
+                                        onClick={() => setShowInstrumentModal(true)}
+                                        className="text-xs font-bold text-slate-600 hover:underline flex items-center gap-1"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" /> Registrar instrumento
+                                    </button>
+                                    <button
+                                        type="button"
                                         onClick={addManualCharacteristic}
                                         className="text-xs font-bold text-brand-700 hover:underline flex items-center gap-1"
                                     >
@@ -653,6 +681,41 @@ export const InspectionsPage = () => {
                                                         ✕
                                                     </button>
                                                 </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-[10px] font-bold text-slate-500">Instrumento (calibración obligatoria)</label>
+                                                <select
+                                                    required
+                                                    value={m.instrumento_id || ''}
+                                                    onChange={event => {
+                                                        const instrumentId = Number(event.target.value) || undefined;
+                                                        const instrument = instruments.find(item => item.id === instrumentId);
+                                                        const copy = [...measurements];
+                                                        copy[idx].instrumento_id = instrumentId;
+                                                        copy[idx].instrumento = instrument ? `${instrument.codigo} · ${instrument.nombre}` : '';
+                                                        setMeasurements(copy);
+                                                    }}
+                                                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5"
+                                                >
+                                                    <option value="">Selecciona un instrumento vigente...</option>
+                                                    {instruments.map(instrument => {
+                                                        const expired = instrument.fecha_vencimiento.slice(0, 10) < new Date().toISOString().slice(0, 10);
+                                                        const unavailable = !instrument.activo || expired;
+                                                        return (
+                                                            <option
+                                                                key={instrument.id}
+                                                                value={instrument.id}
+                                                                disabled={unavailable}
+                                                                style={unavailable ? { color: '#b91c1c' } : undefined}
+                                                            >
+                                                                {instrument.codigo} · {instrument.nombre} — vence {new Date(instrument.fecha_vencimiento).toLocaleDateString('es-CO')}
+                                                                {unavailable ? (expired ? ' · VENCIDO' : ' · INACTIVO') : ''}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                                {instruments.length === 0 && <p className="mt-1 text-[10px] text-rose-700">Registra un equipo con certificado antes de guardar mediciones.</p>}
                                             </div>
 
                                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -758,6 +821,43 @@ export const InspectionsPage = () => {
                             </div>
                         </form>
                     </div>
+                </div>
+            )}
+
+            {showInstrumentModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+                    <form onSubmit={handleCreateInstrument} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+                        <div>
+                            <h3 className="font-bold text-slate-900">Registrar instrumento de medición</h3>
+                            <p className="mt-1 text-xs text-slate-500">El equipo solo podrá usarse en inspecciones hasta la fecha de vencimiento registrada.</p>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <label className="text-xs font-semibold text-slate-700">Código
+                                <input required value={instrumentForm.codigo} onChange={event => setInstrumentForm({ ...instrumentForm, codigo: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2" />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-700">Nombre
+                                <input required value={instrumentForm.nombre} onChange={event => setInstrumentForm({ ...instrumentForm, nombre: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2" />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-700">Tipo
+                                <select value={instrumentForm.tipo} onChange={event => setInstrumentForm({ ...instrumentForm, tipo: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2">
+                                    <option value="MICROMETRO">Micrómetro</option>
+                                    <option value="CALIBRADOR">Calibrador / pie de rey</option>
+                                    <option value="RUGOSIMETRO">Rugosímetro</option>
+                                    <option value="OTRO">Otro instrumento</option>
+                                </select>
+                            </label>
+                            <label className="text-xs font-semibold text-slate-700">Vencimiento calibración
+                                <input required type="date" value={instrumentForm.fecha_vencimiento} onChange={event => setInstrumentForm({ ...instrumentForm, fecha_vencimiento: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2" />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-700 sm:col-span-2">Certificado
+                                <input value={instrumentForm.certificado_calibracion} onChange={event => setInstrumentForm({ ...instrumentForm, certificado_calibracion: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2" />
+                            </label>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => setShowInstrumentModal(false)} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                            <button type="submit" className="rounded-lg bg-brand-400 px-4 py-2 text-sm font-bold text-brand-950 hover:bg-brand-500">Guardar instrumento</button>
+                        </div>
+                    </form>
                 </div>
             )}
 

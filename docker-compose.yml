@@ -29,6 +29,8 @@ services:
     depends_on:
       mecaytro-postgres:
         condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
     expose:
       - "3000"
     healthcheck:

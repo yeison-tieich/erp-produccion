@@ -5,6 +5,7 @@ WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./
 COPY backend/prisma/schema.prisma ./prisma/schema.prisma
 COPY backend/prisma/migrations ./prisma/migrations
+COPY backend/tsconfig.json ./tsconfig.json
 COPY backend/src ./src
 
 RUN apk add --no-cache openssl

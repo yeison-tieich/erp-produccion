@@ -1,8 +1,62 @@
 import { Request, Response } from 'express';
 import { Prisma, PrismaClient } from '@prisma/client';
+import path from 'path';
+import fs from 'fs';
 import { uploadToCloudinary } from '../utils/cloudinary';
 
 const prisma = new PrismaClient();
+
+/**
+ * Guarda un archivo de proyecto especial de forma resiliente:
+ * - Intenta Cloudinary si las credenciales están configuradas.
+ * - En caso de fallo o en entorno LAN/producción sin Cloudinary, almacena en /uploads/special-projects
+ * - Retorna la ruta relativa /uploads/special-projects/<nombre> o la URL segura.
+ */
+export const saveSpecialProjectFile = async (
+  file: any,
+  folder = 'special-projects'
+): Promise<string> => {
+  const hasCloudinary = Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_CLOUD_NAME !== 'CAMBIAR' &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_KEY !== 'CAMBIAR'
+  );
+
+  if (hasCloudinary) {
+    try {
+      const buffer = file.buffer || (file.path ? await fs.promises.readFile(file.path) : null);
+      if (buffer) {
+        const result = await uploadToCloudinary(buffer, folder);
+        if (result?.secure_url) {
+          if (file.path) {
+            await fs.promises.unlink(file.path).catch(() => {});
+          }
+          return result.secure_url;
+        }
+      }
+    } catch (cloudinaryError) {
+      console.warn('Subida a Cloudinary no disponible, guardando en disco local:', cloudinaryError);
+    }
+  }
+
+  // Si Multer guardó directamente en disco con diskStorage
+  if (file.filename) {
+    return `/uploads/special-projects/${file.filename}`;
+  }
+
+  // Fallback para memoryStorage
+  const specialProjectsDir = path.resolve(__dirname, '../../uploads/special-projects');
+  await fs.promises.mkdir(specialProjectsDir, { recursive: true });
+  const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+  const targetPath = path.join(specialProjectsDir, filename);
+  if (file.buffer) {
+    await fs.promises.writeFile(targetPath, file.buffer);
+  }
+  return `/uploads/special-projects/${filename}`;
+};
+
 const STANDARD_PHASES = ['Diseño', 'Materiales', 'Programación', 'Fabricación', 'Ajuste', 'Prueba', 'Cierre'];
 
 const getPhaseInProject = async (projectId: number, phaseId: number) => {
@@ -68,7 +122,20 @@ export const getProyecto = async (req: Request, res: Response) => {
       },
     });
     if (!proyecto) return res.status(404).json({ message: 'Proyecto no encontrado' });
-    res.json(proyecto);
+
+    const enrichedPiezas = proyecto.piezas?.map((piece: any) => {
+      const goodCount = piece.registros?.reduce((sum: number, r: any) => sum + (r.cantidad_buena || 0), 0) || 0;
+      const cantidad_completada = goodCount > 0 ? goodCount : Math.round(((piece.avance_fabricacion || 0) / 100) * piece.cantidad);
+      return {
+        ...piece,
+        cantidad_completada,
+      };
+    });
+
+    res.json({
+      ...proyecto,
+      piezas: enrichedPiezas
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -92,18 +159,16 @@ export const createProyecto = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['foto_referencia'] && files['foto_referencia'].length > 0) {
-        const result = await uploadToCloudinary(files['foto_referencia'][0].buffer, 'special-projects');
-        foto_referencia_url = result.secure_url;
+        foto_referencia_url = await saveSpecialProjectFile(files['foto_referencia'][0], 'special-projects');
       }
       if (files['plano_pdf'] && files['plano_pdf'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_pdf'][0].buffer, 'special-projects');
-        plano_pdf_url = result.secure_url;
+        plano_pdf_url = await saveSpecialProjectFile(files['plano_pdf'][0], 'special-projects');
       }
     }
 
     // Regla: No permitir iniciar más de X proyectos activos
     const config = await prisma.configuracion.findFirst();
-    const maxProyectosActivos = config?.max_proyectos_activos || 10; // Default to 10 if not set
+    const maxProyectosActivos = config?.max_proyectos_activos || 20; // Default to 20 if not set
     const proyectosActivos = await prisma.proyectoEspecial.count({
       where: { estado: { in: ['Pendiente', 'Activo', 'En proceso', 'En pausa'] } },
     });
@@ -216,12 +281,10 @@ export const updateProyecto = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['foto_referencia'] && files['foto_referencia'].length > 0) {
-        const result = await uploadToCloudinary(files['foto_referencia'][0].buffer, 'special-projects');
-        prismaData.foto_referencia_url = result.secure_url;
+        prismaData.foto_referencia_url = await saveSpecialProjectFile(files['foto_referencia'][0], 'special-projects');
       }
       if (files['plano_pdf'] && files['plano_pdf'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_pdf'][0].buffer, 'special-projects');
-        prismaData.plano_pdf_url = result.secure_url;
+        prismaData.plano_pdf_url = await saveSpecialProjectFile(files['plano_pdf'][0], 'special-projects');
       }
     }
 
@@ -695,8 +758,7 @@ export const uploadAttachment = async (req: Request, res: Response) => {
     }
 
     const file = req.file as any;
-    const result = await uploadToCloudinary(file.buffer, 'special-projects');
-    const url_archivo = result.secure_url;
+    const url_archivo = await saveSpecialProjectFile(file, 'special-projects');
 
     const newAttachment = await prisma.archivoAdjunto.create({
       data: {
@@ -719,9 +781,20 @@ export const getPieces = async (req: Request, res: Response) => {
     const { id } = req.params;
     const pieces = await prisma.piezaProyecto.findMany({
       where: { proyecto_id: Number(id) },
-      include: { registros: { orderBy: { fecha: 'desc' } } }
+      include: { registros: { orderBy: { fecha: 'desc' } } },
+      orderBy: { id: 'asc' }
     });
-    res.json(pieces);
+
+    const enrichedPieces = pieces.map((piece: any) => {
+      const goodCount = piece.registros?.reduce((sum: number, r: any) => sum + (r.cantidad_buena || 0), 0) || 0;
+      const cantidad_completada = goodCount > 0 ? goodCount : Math.round(((piece.avance_fabricacion || 0) / 100) * piece.cantidad);
+      return {
+        ...piece,
+        cantidad_completada,
+      };
+    });
+
+    res.json(enrichedPieces);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -748,12 +821,10 @@ export const addPiece = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['plano_1'] && files['plano_1'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_1'][0].buffer, 'special-projects');
-        plano_url_1 = result.secure_url;
+        plano_url_1 = await saveSpecialProjectFile(files['plano_1'][0], 'special-projects');
       }
       if (files['plano_2'] && files['plano_2'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_2'][0].buffer, 'special-projects');
-        plano_url_2 = result.secure_url;
+        plano_url_2 = await saveSpecialProjectFile(files['plano_2'][0], 'special-projects');
       }
     }
 
@@ -977,6 +1048,10 @@ export const updatePiece = async (req: Request, res: Response) => {
     const { 
       nombre, 
       cantidad, 
+      cantidad_completada,
+      avance_fabricacion,
+      estado,
+      estado_montaje,
       requiere_montaje, 
       observaciones,
       tipo_material,
@@ -996,35 +1071,66 @@ export const updatePiece = async (req: Request, res: Response) => {
     if (req.files) {
       const files = req.files as any;
       if (files['plano_1'] && files['plano_1'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_1'][0].buffer, 'special-projects');
-        plano_url_1 = result.secure_url;
+        plano_url_1 = await saveSpecialProjectFile(files['plano_1'][0], 'special-projects');
       }
       if (files['plano_2'] && files['plano_2'].length > 0) {
-        const result = await uploadToCloudinary(files['plano_2'][0].buffer, 'special-projects');
-        plano_url_2 = result.secure_url;
+        plano_url_2 = await saveSpecialProjectFile(files['plano_2'][0], 'special-projects');
       }
     }
 
+    const numCantidad = cantidad !== undefined ? Number(cantidad) : currentPiece.cantidad;
+    let computedAvance = currentPiece.avance_fabricacion;
+    if (cantidad_completada !== undefined) {
+      const numCompletada = Math.max(0, Number(cantidad_completada));
+      computedAvance = numCantidad > 0 ? Math.min(100, Math.round((numCompletada / numCantidad) * 100)) : 0;
+    } else if (avance_fabricacion !== undefined) {
+      computedAvance = Math.min(100, Math.max(0, Number(avance_fabricacion)));
+    }
+
     const pieceData: any = {
-      nombre,
-      cantidad: cantidad ? Number(cantidad) : undefined,
+      nombre: nombre !== undefined ? String(nombre).trim() : undefined,
+      cantidad: cantidad !== undefined ? numCantidad : undefined,
+      avance_fabricacion: computedAvance,
+      estado_montaje: estado || estado_montaje || undefined,
       requiere_montaje: requiere_montaje !== undefined ? (requiere_montaje === 'true' || requiere_montaje === true) : undefined,
-      observaciones,
-      tipo_material,
-      largo: largo ? Number(largo) : undefined,
-      ancho: ancho ? Number(ancho) : undefined,
-      espesor: espesor ? Number(espesor) : undefined,
-      diametro: diametro ? Number(diametro) : undefined,
+      observaciones: observaciones !== undefined ? observaciones : undefined,
+      tipo_material: tipo_material !== undefined ? tipo_material : undefined,
+      largo: largo !== undefined ? (largo ? Number(largo) : null) : undefined,
+      ancho: ancho !== undefined ? (ancho ? Number(ancho) : null) : undefined,
+      espesor: espesor !== undefined ? (espesor ? Number(espesor) : null) : undefined,
+      diametro: diametro !== undefined ? (diametro ? Number(diametro) : null) : undefined,
       plano_url_1,
       plano_url_2
     };
 
-    const updatedPiece = await prisma.piezaProyecto.update({
-      where: { id: Number(pieceId) },
-      data: pieceData
+    const updatedPiece = await prisma.$transaction(async (tx) => {
+      const updated = await tx.piezaProyecto.update({
+        where: { id: Number(pieceId) },
+        data: pieceData
+      });
+
+      if (cantidad_completada !== undefined) {
+        const numCompletada = Math.max(0, Number(cantidad_completada));
+        await tx.registroPieza.create({
+          data: {
+            pieza_id: currentPiece.id,
+            tipo: 'FABRICACION',
+            descripcion: `Actualización de avance: ${numCompletada} completadas`,
+            cantidad_buena: numCompletada,
+            avance_reportado: computedAvance
+          }
+        });
+      }
+
+      const newProgress = await calculateProjectProgress(currentPiece.proyecto_id, tx);
+      await tx.proyectoEspecial.update({
+        where: { id: currentPiece.proyecto_id },
+        data: { porcentaje_avance: newProgress }
+      });
+
+      return updated;
     });
 
-    // Registrar en el historial si se proporciona userId
     if (userId) {
       await prisma.historialCambios.create({
         data: {
@@ -1041,3 +1147,139 @@ export const updatePiece = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+/**
+ * Sincroniza la tabla editable completa de piezas (creación, edición y eliminación por lotes)
+ */
+export const syncPieces = async (req: Request, res: Response) => {
+  try {
+    const projectId = Number(req.params.id);
+    const { pieces, deletedIds } = req.body;
+
+    if (!Number.isInteger(projectId)) {
+      return res.status(400).json({ message: 'ID de proyecto no válido' });
+    }
+
+    const projectExists = await prisma.proyectoEspecial.findUnique({
+      where: { id: projectId },
+      select: { id: true }
+    });
+    if (!projectExists) {
+      return res.status(404).json({ message: 'Proyecto no encontrado' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Eliminar piezas
+      if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+        const validDeleteIds = deletedIds.map(Number).filter(Number.isInteger);
+        if (validDeleteIds.length > 0) {
+          await tx.registroPieza.deleteMany({
+            where: { pieza_id: { in: validDeleteIds } }
+          });
+          await tx.piezaProyecto.deleteMany({
+            where: { id: { in: validDeleteIds }, proyecto_id: projectId }
+          });
+        }
+      }
+
+      // 2. Procesar piezas recibidas
+      if (Array.isArray(pieces)) {
+        for (const p of pieces) {
+          const rawNombre = typeof p.nombre === 'string' ? p.nombre.trim() : '';
+          if (!rawNombre) continue;
+
+          const cantidad = Math.max(1, Number(p.cantidad) || 1);
+          const cantidadCompletada = p.cantidad_completada !== undefined && p.cantidad_completada !== null && p.cantidad_completada !== ''
+            ? Math.max(0, Number(p.cantidad_completada))
+            : null;
+
+          let computedAvance = p.avance_fabricacion !== undefined ? Math.min(100, Math.max(0, Number(p.avance_fabricacion))) : 0;
+          if (cantidadCompletada !== null) {
+            computedAvance = Math.min(100, Math.round((cantidadCompletada / cantidad) * 100));
+          }
+
+          const estadoMontaje = p.estado || p.estado_montaje || (computedAvance >= 100 ? 'Fabricada' : computedAvance > 0 ? 'En proceso' : 'Pendiente');
+
+          if (p.id && Number.isInteger(Number(p.id))) {
+            const pieceId = Number(p.id);
+            await tx.piezaProyecto.update({
+              where: { id: pieceId },
+              data: {
+                nombre: rawNombre,
+                cantidad,
+                avance_fabricacion: computedAvance,
+                estado_montaje: estadoMontaje,
+                observaciones: p.observaciones !== undefined ? String(p.observaciones) : null,
+                tipo_material: p.tipo_material !== undefined ? String(p.tipo_material) : null,
+              }
+            });
+
+            if (cantidadCompletada !== null) {
+              await tx.registroPieza.create({
+                data: {
+                  pieza_id: pieceId,
+                  tipo: 'FABRICACION',
+                  descripcion: `Sincronización de tabla: ${cantidadCompletada} completadas`,
+                  cantidad_buena: cantidadCompletada,
+                  avance_reportado: computedAvance
+                }
+              });
+            }
+          } else {
+            const created = await tx.piezaProyecto.create({
+              data: {
+                proyecto_id: projectId,
+                nombre: rawNombre,
+                cantidad,
+                avance_fabricacion: computedAvance,
+                estado_montaje: estadoMontaje,
+                observaciones: p.observaciones !== undefined ? String(p.observaciones) : null,
+                tipo_material: p.tipo_material !== undefined ? String(p.tipo_material) : null,
+              }
+            });
+
+            if (cantidadCompletada !== null && cantidadCompletada > 0) {
+              await tx.registroPieza.create({
+                data: {
+                  pieza_id: created.id,
+                  tipo: 'FABRICACION',
+                  descripcion: `Registro inicial: ${cantidadCompletada} completadas`,
+                  cantidad_buena: cantidadCompletada,
+                  avance_reportado: computedAvance
+                }
+              });
+            }
+          }
+        }
+      }
+
+      // 3. Recalcular progreso general del proyecto
+      const newProgress = await calculateProjectProgress(projectId, tx);
+      await tx.proyectoEspecial.update({
+        where: { id: projectId },
+        data: { porcentaje_avance: newProgress }
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    const updatedPieces = await prisma.piezaProyecto.findMany({
+      where: { proyecto_id: projectId },
+      include: { registros: { orderBy: { fecha: 'desc' } } },
+      orderBy: { id: 'asc' }
+    });
+
+    const enriched = updatedPieces.map((piece: any) => {
+      const goodCount = piece.registros?.reduce((sum: number, r: any) => sum + (r.cantidad_buena || 0), 0) || 0;
+      const cantidad_completada = goodCount > 0 ? goodCount : Math.round(((piece.avance_fabricacion || 0) / 100) * piece.cantidad);
+      return {
+        ...piece,
+        cantidad_completada
+      };
+    });
+
+    res.json(enriched);
+  } catch (error: any) {
+    console.error('syncPieces error:', error);
+    res.status(500).json({ message: error.message || 'Error al sincronizar piezas' });
+  }
+};
+

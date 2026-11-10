@@ -5,13 +5,14 @@ import { API_URL, getAssetUrl } from '../../api';
 import ProcessModal from './ProcessModal';
 import EditProjectModal from './EditProjectModal';
 import PieceMatrix from './PieceMatrix';
+import PiecesEditableTable from '../../components/special-projects/PiecesEditableTable';
 import QuickPhaseModal from './QuickPhaseModal';
 import { Plus, Trash2, FileText, Clock, History, StickyNote, Factory, Target, File as FileIcon, X, Edit3, TableProperties, Zap } from 'lucide-react';
 
 const SpecialProjectDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { project, fetchProject, deleteProject, addNote, updateMaterials, uploadAttachment, fetchPieces, addPiece, deletePiece, updatePhase } = useSpecialProjectsStore();
+  const { project, fetchProject, deleteProject, addNote, updateMaterials, uploadAttachment, updatePhase } = useSpecialProjectsStore();
   const [isPhaseModalOpen, setIsPhaseModalOpen] = React.useState(false);
   const [selectedFase, setSelectedFase] = React.useState<any>(null);
   const [currentPhaseIndex, setCurrentPhaseIndex] = React.useState(0);
@@ -24,24 +25,6 @@ const SpecialProjectDetails: React.FC = () => {
   const [newNote, setNewNote] = React.useState('');
   const [isUploading, setIsUploading] = React.useState(false);
   const [newMaterial, setNewMaterial] = React.useState({ descripcion: '', peso_kg: '' });
-  const [newPiece, setNewPiece] = React.useState({ 
-    nombre: '', 
-    cantidad: 1, 
-    requiere_montaje: false, 
-    observaciones: '',
-    tipo_material: '',
-    largo: '',
-    ancho: '',
-    espesor: '',
-    diametro: ''
-  });
-  const [isEditingPiece, setIsEditingPiece] = React.useState(false);
-  const [editingPieceData, setEditingPieceData] = React.useState<any>(null);
-  const [pieceFiles, setPieceFiles] = React.useState<{plano_1: File | null, plano_2: File | null}>({
-    plano_1: null,
-    plano_2: null
-  });
-  const [isAddingPiece, setIsAddingPiece] = React.useState(false);
   const [isPieceMatrixOpen, setIsPieceMatrixOpen] = React.useState(false);
   const [isQuickPhaseOpen, setIsQuickPhaseOpen] = React.useState(false);
   const { error: storeError } = useSpecialProjectsStore();
@@ -143,65 +126,8 @@ const SpecialProjectDetails: React.FC = () => {
     await updateMaterials(project.id.toString(), updatedMaterials);
   };
 
-  const handleAddPiece = async () => {
-    if (!newPiece.nombre || !project) {
-       alert("Por favor ingrese el nombre de la pieza");
-       return;
-    }
-    
-    try {
-      const formData = new FormData();
-      formData.append('nombre', newPiece.nombre);
-      formData.append('cantidad', newPiece.cantidad.toString());
-      formData.append('requiere_montaje', newPiece.requiere_montaje.toString());
-      formData.append('observaciones', newPiece.observaciones || '');
-      if (newPiece.tipo_material) formData.append('tipo_material', newPiece.tipo_material);
-      if (newPiece.largo) formData.append('largo', newPiece.largo.toString());
-      if (newPiece.ancho) formData.append('ancho', newPiece.ancho.toString());
-      if (newPiece.espesor) formData.append('espesor', newPiece.espesor.toString());
-      if (newPiece.diametro) formData.append('diametro', newPiece.diametro.toString());
-      if (pieceFiles.plano_1) formData.append('plano_1', pieceFiles.plano_1);
-      if (pieceFiles.plano_2) formData.append('plano_2', pieceFiles.plano_2);
-      
-      await addPiece(project.id.toString(), formData);
-      
-      // Clear form only on success (storeError will be null if successful)
-      const currentStore = useSpecialProjectsStore.getState();
-      if (!currentStore.error) {
-        setNewPiece({ 
-          nombre: '', 
-          cantidad: 1, 
-          requiere_montaje: false, 
-          observaciones: '',
-          tipo_material: '',
-          largo: '',
-          ancho: '',
-          espesor: '',
-          diametro: ''
-        });
-        setPieceFiles({ plano_1: null, plano_2: null });
-        setIsAddingPiece(false);
-      }
-    } catch (err) {
-      console.error("Error adding piece:", err);
-    }
-  };
-
-  const handleUpdatePiece = async (pieceId: number, formData: FormData) => {
-    const { updatePiece } = useSpecialProjectsStore.getState();
-    await updatePiece(pieceId.toString(), formData);
-    setIsEditingPiece(false);
-    setEditingPieceData(null);
-  };
-
-  const handleRemovePiece = async (pieceId: number) => {
-    if (window.confirm('¿Eliminar esta pieza?')) {
-      await deletePiece(pieceId.toString());
-    }
-  };
-
   return (
-    <div className="container mx-auto p-6 max-w-7xl animate-in fade-in duration-500">
+    <div className="w-full min-h-full p-3 sm:p-4 lg:p-5 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-4">
         <Link 
           to="/special-projects" 
@@ -318,10 +244,10 @@ const SpecialProjectDetails: React.FC = () => {
       </div>
 
       {/* Main Grid content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Column: Core logic & pieces (8 cols) */}
-        <div className="lg:col-span-8 space-y-8">
+        <div className="lg:col-span-9 space-y-6">
           
           {/* Photos & Blueprints Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -333,6 +259,17 @@ const SpecialProjectDetails: React.FC = () => {
                     src={getAssetUrl(project.foto_referencia_url)}
                     alt="Referencia" 
                     className="w-full h-full object-cover transition duration-500 group-hover:scale-110"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (!target.dataset.fallback) {
+                        target.dataset.fallback = 'true';
+                        target.style.display = 'none';
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'w-full h-full flex items-center justify-center bg-gray-50 text-gray-400 text-xs font-bold text-center p-4';
+                        placeholder.innerHTML = '⚠️ Imagen no disponible<br/><span class="text-[10px] text-gray-300">Verifica que el archivo exista en el servidor</span>';
+                        target.parentElement?.appendChild(placeholder);
+                      }
+                    }}
                   />
                 </div>
               ) : (
@@ -362,246 +299,25 @@ const SpecialProjectDetails: React.FC = () => {
             </div>
           </div>
 
-          {/* Piece Control Section */}
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
-            <div className="flex justify-between items-center mb-8">
-              <div>
-                <h2 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-                  <Target className="w-8 h-8 text-brand-600" /> Control de Piezas
-                </h2>
-                <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">Avance individual por componente</p>
-              </div>
-              <button 
-                onClick={() => setIsAddingPiece(!isAddingPiece)}
-                className={`font-black text-xs uppercase tracking-widest px-4 py-2 rounded-xl transition-all ${
-                  isAddingPiece ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-600'
-                }`}
-              >
-                {isAddingPiece ? 'Cancelar' : '+ Nueva Pieza'}
-              </button>
-              <button
-                onClick={() => setIsPieceMatrixOpen(true)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
-              >
-                <TableProperties className="h-4 w-4" /> Carga rápida
-              </button>
-            </div>
-
-            {isAddingPiece && (
-              <div className="bg-brand-50/50 p-6 rounded-[1.5rem] border border-brand-100 mb-8 space-y-4 animate-in slide-in-from-top duration-300">
-                {storeError && (
-                  <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-black uppercase mb-2">
-                    {storeError}
-                  </div>
-                )}
-                <input 
-                  type="text" 
-                  placeholder="Nombre de la pieza o sub-conjunto"
-                  className="w-full px-5 py-3 rounded-xl border border-gray-200 focus:bg-white outline-none font-bold placeholder:text-gray-300"
-                  value={newPiece.nombre}
-                  onChange={e => setNewPiece({...newPiece, nombre: e.target.value})}
-                />
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Plano 1 (PDF/IMG)</label>
-                    <input 
-                      type="file" 
-                      className="w-full text-xs text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200 transition-all"
-                      onChange={e => setPieceFiles({...pieceFiles, plano_1: e.target.files?.[0] || null})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Plano 2 (PDF/IMG)</label>
-                    <input 
-                      type="file" 
-                      className="w-full text-xs text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200 transition-all"
-                      onChange={e => setPieceFiles({...pieceFiles, plano_2: e.target.files?.[0] || null})}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Tipo Material</label>
-                    <input 
-                      type="text" 
-                      placeholder="Ej: Acero"
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 focus:bg-white outline-none font-bold text-xs"
-                      value={newPiece.tipo_material}
-                      onChange={e => setNewPiece({...newPiece, tipo_material: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Largo (mm)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0"
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 focus:bg-white outline-none font-bold text-xs"
-                      value={newPiece.largo}
-                      onChange={e => setNewPiece({...newPiece, largo: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Ancho (mm)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0"
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 focus:bg-white outline-none font-bold text-xs"
-                      value={newPiece.ancho}
-                      onChange={e => setNewPiece({...newPiece, ancho: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Espesor (mm)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0"
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 focus:bg-white outline-none font-bold text-xs"
-                      value={newPiece.espesor}
-                      onChange={e => setNewPiece({...newPiece, espesor: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Diámetro (mm)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0"
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 focus:bg-white outline-none font-bold text-xs"
-                      value={newPiece.diametro}
-                      onChange={e => setNewPiece({...newPiece, diametro: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-4 items-center">
-                   <div className="flex items-center gap-2">
-                     <span className="text-xs font-black text-gray-400 uppercase">Cant</span>
-                     <input 
-                      type="number" 
-                      className="w-20 px-4 py-3 rounded-xl border border-gray-200 focus:bg-white outline-none font-black text-center"
-                      value={newPiece.cantidad}
-                      onChange={e => setNewPiece({...newPiece, cantidad: Number(e.target.value)})}
-                    />
-                   </div>
-                  <label className="flex items-center gap-3 flex-1 cursor-pointer bg-white px-4 py-3 rounded-xl border border-gray-200">
-                    <input 
-                      type="checkbox" 
-                      checked={newPiece.requiere_montaje}
-                      onChange={e => setNewPiece({...newPiece, requiere_montaje: e.target.checked})}
-                      className="w-6 h-6 accent-brand-600 rounded-lg cursor-pointer"
-                    />
-                    <span className="text-xs font-black text-gray-500 uppercase tracking-widest">Requiere Montaje Final</span>
-                  </label>
-                  <button 
-                    onClick={handleAddPiece}
-                    className="w-full sm:w-auto bg-brand-600 text-white px-10 py-3 rounded-xl font-black shadow-lg shadow-brand-100 active:scale-95 transition-all"
-                  >
-                    GUARDAR PIEZA
-                  </button>
-                </div>
+          {/* Piece Control Section - Tabla Editable */}
+          <div className="rounded-[2rem] overflow-hidden">
+            <PiecesEditableTable
+              projectId={project.id}
+              initialPieces={project.piezas || []}
+              canEdit={!isLocked}
+              onSaved={() => fetchProject(id!)}
+            />
+            {/* Botón de Carga Rápida (PieceMatrix) */}
+            {!isLocked && (
+              <div className="bg-white px-5 py-3 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setIsPieceMatrixOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white hover:bg-teal-800 transition-all active:scale-95 shadow-sm"
+                >
+                  <TableProperties className="h-4 w-4" /> Carga rápida masiva
+                </button>
               </div>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {project.piezas?.map((pieza) => (
-                <div key={pieza.id} className="p-5 bg-gray-50/50 rounded-2xl border border-gray-100 hover:bg-white hover:shadow-xl hover:shadow-gray-200/50 transition-all group">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h4 className="font-black text-gray-900 group-hover:text-brand-600 transition-colors uppercase text-sm">{pieza.nombre}</h4>
-                      <p className="text-[10px] font-black text-gray-400 uppercase mt-0.5">Cantidad: {pieza.cantidad} Unidades</p>
-                      
-                      <div className="flex gap-2 mt-2">
-                        {pieza.plano_url_1 && (
-                          <a 
-                            href={getAssetUrl(pieza.plano_url_1)}
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="bg-blue-50 text-blue-600 p-1.5 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-1.5 text-[10px] font-black uppercase"
-                          >
-                            <FileIcon className="w-3 h-3" /> Plano 1
-                          </a>
-                        )}
-                        {pieza.plano_url_2 && (
-                          <a 
-                            href={getAssetUrl(pieza.plano_url_2)}
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="bg-brand-50 text-brand-600 p-1.5 rounded-lg hover:bg-brand-100 transition-all flex items-center gap-1.5 text-[10px] font-black uppercase"
-                          >
-                            <FileIcon className="w-3 h-3" /> Plano 2
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-1">
-                      <button 
-                        onClick={() => {
-                          setEditingPieceData(pieza);
-                          setIsEditingPiece(true);
-                        }} 
-                        className="text-gray-300 hover:text-brand-600 p-1 transition-colors"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleRemovePiece(pieza.id)} className="text-gray-300 hover:text-red-500 p-1 transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="mb-4">
-                    {pieza.tipo_material && (
-                      <span className="text-[9px] font-black bg-gray-100 px-2 py-1 rounded text-gray-500 uppercase tracking-tighter mr-2">
-                        {pieza.tipo_material}
-                      </span>
-                    )}
-                    {(pieza.largo || pieza.ancho || pieza.espesor || pieza.diametro) && (
-                      <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">
-                        {[
-                          pieza.largo ? `${pieza.largo}L` : null,
-                          pieza.ancho ? `${pieza.ancho}A` : null,
-                          pieza.espesor ? `${pieza.espesor}E` : null,
-                          pieza.diametro ? `${pieza.diametro}D` : null
-                        ].filter(Boolean).join(' x ')}
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      <span>Fabricación</span>
-                      <span className="text-brand-600">{pieza.avance_fabricacion}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200/50 rounded-full h-2">
-                      <div 
-                        className="bg-brand-500 h-2 rounded-full transition-all duration-700 ease-out" 
-                        style={{ width: `${pieza.avance_fabricacion}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {pieza.requiere_montaje && (
-                    <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Estado Montaje</span>
-                      <span className={`text-[10px] font-black px-3 py-1 rounded-full ${
-                        pieza.estado_montaje === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                      }`}>
-                        {pieza.estado_montaje.toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {(!project.piezas || project.piezas.length === 0) && (
-                <div className="md:col-span-2 text-center py-10">
-                   <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Target className="w-8 h-8 text-gray-200" />
-                   </div>
-                   <p className="text-gray-400 text-sm font-bold italic">No se han registrado componentes todavía.</p>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Timeline and phases */}
@@ -758,7 +474,7 @@ const SpecialProjectDetails: React.FC = () => {
         </div>
 
         {/* Right Column: Widgets (4 cols) */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-3 space-y-6">
           
           {/* Hour Meter Widget */}
           <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-8 rounded-[2rem] text-white shadow-xl shadow-orange-100">
@@ -916,131 +632,6 @@ const SpecialProjectDetails: React.FC = () => {
         />
       )}
 
-      {isEditingPiece && editingPieceData && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] shadow-2xl max-w-2xl w-full p-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black">Editar Pieza</h3>
-              <button onClick={() => setIsEditingPiece(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
-            </div>
-            
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              handleUpdatePiece(editingPieceData.id, formData);
-            }} className="space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Nombre de la pieza</label>
-                  <input 
-                    name="nombre"
-                    type="text" 
-                    defaultValue={editingPieceData.nombre}
-                    className="w-full px-5 py-3 rounded-xl border border-gray-100 focus:bg-gray-50 outline-none font-bold"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Cantidad</label>
-                    <input 
-                      name="cantidad"
-                      type="number" 
-                      defaultValue={editingPieceData.cantidad}
-                      className="w-full px-5 py-3 rounded-xl border border-gray-100 focus:bg-gray-50 outline-none font-black"
-                    />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="flex items-center gap-3 cursor-pointer bg-gray-50 px-4 py-3 rounded-xl border border-gray-100 w-full mt-4">
-                      <input 
-                        name="requiere_montaje"
-                        type="checkbox" 
-                        defaultChecked={editingPieceData.requiere_montaje}
-                        className="w-5 h-5 accent-brand-600 rounded cursor-pointer"
-                        value="true"
-                      />
-                      <span className="text-[10px] font-black text-gray-500 uppercase">Requiere Montaje</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Tipo Material</label>
-                    <input 
-                      name="tipo_material"
-                      type="text" 
-                      defaultValue={editingPieceData.tipo_material}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 outline-none font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Largo (mm)</label>
-                    <input 
-                      name="largo"
-                      type="number" 
-                      defaultValue={editingPieceData.largo}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 outline-none font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Ancho (mm)</label>
-                    <input 
-                      name="ancho"
-                      type="number" 
-                      defaultValue={editingPieceData.ancho}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 outline-none font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Espesor (mm)</label>
-                    <input 
-                      name="espesor"
-                      type="number" 
-                      defaultValue={editingPieceData.espesor}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 outline-none font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Diámetro (mm)</label>
-                    <input 
-                      name="diametro"
-                      type="number" 
-                      defaultValue={editingPieceData.diametro}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-100 outline-none font-bold text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Actualizar Plano 1</label>
-                    <input type="file" name="plano_1" className="text-xs text-gray-400 w-full" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Actualizar Plano 2</label>
-                    <input type="file" name="plano_2" className="text-xs text-gray-400 w-full" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Observaciones</label>
-                  <textarea 
-                    name="observaciones"
-                    defaultValue={editingPieceData.observaciones}
-                    className="w-full px-5 py-3 rounded-xl border border-gray-100 focus:bg-gray-50 outline-none font-bold text-xs min-h-[80px]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button type="button" onClick={() => setIsEditingPiece(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-xs">Cancelar</button>
-                <button type="submit" className="flex-1 py-4 bg-brand-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-brand-100">Guardar Cambios</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { databaseService } from '../services/databaseService';
 import { syncQueueService } from '../services/syncQueueService';
 import { API_URL } from '../api';
+import { createUUID } from '../utils/uuid';
 
 export interface MateriaPrimaLocal {
     id_local?: string;
@@ -53,7 +54,7 @@ class MateriaPrimaRepository {
             return res.data;
         }
 
-        const id_local = crypto.randomUUID();
+        const id_local = createUUID();
         const now = Date.now();
         
         const record: any = {

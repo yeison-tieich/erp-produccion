@@ -23,6 +23,7 @@ interface SpecialProjectsState {
   fetchPieces: (id: string) => Promise<void>;
   addPiece: (id: string, piece: any) => Promise<void>;
   addPiecesBulk: (id: string, requestId: string, pieces: any[]) => Promise<void>;
+  syncPieces: (id: string, pieces: any[], deletedIds?: number[]) => Promise<any>;
   addPieceRecord: (pieceId: string, record: any) => Promise<void>;
   updatePiece: (pieceId: string, piece: any) => Promise<void>;
   deletePiece: (pieceId: string) => Promise<void>;
@@ -212,6 +213,29 @@ export const useSpecialProjectsStore = create<SpecialProjectsState>((set) => ({
       if (store.project) await store.fetchPieces(store.project.id.toString());
     } catch (error: any) {
       set({ error: getApiErrorMessage(error, 'No se pudo eliminar la pieza') });
+    }
+  },
+  syncPieces: async (id, pieces, deletedIds = []) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axios.put(`${API_URL}/special-projects/${id}/pieces/sync`, {
+        pieces,
+        deletedIds
+      });
+      set(state => ({
+        project: state.project?.id === Number(id)
+          ? { ...state.project, piezas: response.data }
+          : state.project,
+        loading: false
+      }));
+      // Also refresh the project to get updated overall project progress
+      const store = useSpecialProjectsStore.getState();
+      await store.fetchProject(id);
+      return response.data;
+    } catch (error: any) {
+      const message = getApiErrorMessage(error, 'Error al guardar cambios de piezas');
+      set({ error: message, loading: false });
+      throw error;
     }
   },
   updatePhase: async (projectId, phaseId, phaseData) => {

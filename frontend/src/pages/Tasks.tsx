@@ -24,6 +24,7 @@ export const Tasks = () => {
     const [observationTask, setObservationTask] = useState<any | null>(null);
     const [workerComment, setWorkerComment] = useState('');
     const [editTaskModal, setEditTaskModal] = useState<any | null>(null);
+    const [finishingTaskId, setFinishingTaskId] = useState<number | null>(null);
 
     const fetchTasks = async () => {
         try {
@@ -81,10 +82,12 @@ export const Tasks = () => {
     };
 
     const handleFinishTask = async (taskId: number) => {
+        if (finishingTaskId !== null) return;
         const buena = prompt("Cantidad BUENA:", "0");
         const mala = prompt("Cantidad MALA (Scrap):", "0");
         if (buena === null || mala === null) return;
 
+        setFinishingTaskId(taskId);
         try {
             await axios.post(`${API_URL}/tasks/${taskId}/finish`, {
                 cantidad_buena: Number(buena),
@@ -101,6 +104,8 @@ export const Tasks = () => {
             } catch (e) {
                 alert('Error al finalizar tarea');
             }
+        } finally {
+            setFinishingTaskId(null);
         }
     };
 
@@ -320,10 +325,11 @@ export const Tasks = () => {
 
                                         <button
                                             onClick={() => handleFinishTask(task.id)}
-                                            className="flex-1 bg-green-600 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-green-700 transition shadow-sm"
+                                            disabled={finishingTaskId === task.id}
+                                            className="flex-1 bg-green-600 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-green-700 transition shadow-sm disabled:opacity-50"
                                             title="Finalizar Tarea"
                                         >
-                                            <CheckCircle className="w-4 h-4" /> Finalizar Tarea
+                                            <CheckCircle className="w-4 h-4" /> {finishingTaskId === task.id ? 'Finalizando...' : 'Finalizar Tarea'}
                                         </button>
 
                                         <button

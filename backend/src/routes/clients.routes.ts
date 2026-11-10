@@ -1,10 +1,11 @@
 
 import { Router } from 'express';
-import { getClients, getClientDetails, updateClient, updateClientRating, deleteClient, bindProducts, unbindProducts } from '../controllers/clients.controller';
+import { createClient, getClients, getClientDetails, updateClient, updateClientRating, deleteClient, bindProducts, unbindProducts } from '../controllers/clients.controller';
 import { authenticateToken, authorizeRole } from '../middleware/auth.middleware';
 
 const router = Router();
 
+router.post('/', authenticateToken, authorizeRole(['Administrador']), createClient);
 router.get('/', authenticateToken, getClients);
 router.get('/:id', authenticateToken, getClientDetails);
 router.put('/:id', authenticateToken, authorizeRole(['Administrador']), updateClient);

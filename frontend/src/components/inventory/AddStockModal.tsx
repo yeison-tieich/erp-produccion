@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { X, Upload, CheckCircle, Loader2 } from 'lucide-react';
+import { X, Upload, CheckCircle, Loader2, Camera, Image as ImageIcon } from 'lucide-react';
 import { API_URL } from '../../api';
+import { Capacitor } from '@capacitor/core';
+import { capturePhotoFromCamera, pickPhotoFromGallery } from '../../utils/camera';
 
 interface AddStockModalProps {
     material: any;
@@ -123,33 +125,40 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ material, onClose,
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Imagen de Remisión</label>
-                        <div 
-                            className={`border-2 border-dashed rounded-2xl p-4 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer
-                                ${previewUrl ? 'border-brand-300 bg-brand-50' : 'border-gray-200 hover:border-brand-200 hover:bg-gray-50'}
-                            `}
-                            onClick={() => document.getElementById('remission-upload')?.click()}
-                        >
-                            {previewUrl ? (
-                                <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-sm">
-                                    <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
-                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                        <p className="text-white text-xs font-bold bg-black/40 px-2 py-1 rounded-full text-center">Click para cambiar</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <Upload className="w-8 h-8 text-gray-300" />
-                                    <p className="text-xs text-gray-500 font-medium">Haz click para subir foto de la remisión</p>
-                                </>
+                        {previewUrl && (
+                            <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-sm mb-2">
+                                <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
+                                <button type="button" onClick={() => { setPreviewUrl(null); setImage(null); }} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                            {Capacitor.isNativePlatform() && (
+                                <button
+                                    type="button"
+                                    onClick={async () => { const f = await capturePhotoFromCamera('remision'); if (f) { setImage(f); setPreviewUrl(URL.createObjectURL(f)); } }}
+                                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-50 border-2 border-blue-100 hover:border-blue-400 text-blue-600 font-bold text-xs transition"
+                                >
+                                    <Camera className="w-4 h-4" /> Tomar Foto
+                                </button>
                             )}
-                            <input
-                                id="remission-upload"
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleFileChange}
-                            />
+                            <button
+                                type="button"
+                                onClick={async () => { const f = await pickPhotoFromGallery('remision'); if (f) { setImage(f); setPreviewUrl(URL.createObjectURL(f)); } }}
+                                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 text-gray-500 font-bold text-xs transition col-span-1"
+                            >
+                                <ImageIcon className="w-4 h-4" /> {previewUrl ? 'Cambiar' : 'Galería'}
+                            </button>
                         </div>
+                        {!Capacitor.isNativePlatform() && (
+                            <>
+                                <input id="remission-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                                <label htmlFor="remission-upload" className="mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-500 cursor-pointer text-gray-500 font-bold text-xs transition w-full">
+                                    <Upload className="w-4 h-4" /> Subir Foto
+                                </label>
+                            </>
+                        )}
                     </div>
 
                     <div className="flex justify-end gap-3 pt-4">

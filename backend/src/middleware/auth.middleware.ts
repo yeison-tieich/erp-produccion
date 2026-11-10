@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 
 interface AuthRequest extends Request {
     user?: any;
+    modulePermissionAllowed?: boolean;
 }
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -23,6 +24,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
 
 export const authorizeRole = (roles: string[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
+        if (req.modulePermissionAllowed) return next();
         if (!req.user || !roles.includes(req.user.rol)) {
             return res.sendStatus(403);
         }

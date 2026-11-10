@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../api';
-import { Users, UserPlus, Shield, Check, X, Edit3, Trash2, Key, CheckSquare, Square } from 'lucide-react';
+import { SideDrawer } from '../components/ui/SideDrawer';
+import { Users, UserPlus, Shield, Check, X, Edit3, Trash2, Key, CheckSquare, Square, Loader2 } from 'lucide-react';
+import { getPermissionMatrix } from '../utils/permissions';
 
 interface User {
     id: number;
@@ -43,6 +45,16 @@ export const UsersPage = () => {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const createDefaultMatrix = () => {
+        const defaultMatrix: Record<string, Record<string, boolean>> = {};
+        MODULES.forEach(mod => {
+            defaultMatrix[mod] = { ver: true, crear: false, editar: false, eliminar: false, exportar: false };
+        });
+        return defaultMatrix;
+    };
 
     const [form, setForm] = useState({
         nombre: '',
@@ -53,7 +65,7 @@ export const UsersPage = () => {
         activo: true
     });
 
-    const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>({});
+    const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>(createDefaultMatrix());
 
     const fetchUsers = async () => {
         try {
@@ -71,7 +83,8 @@ export const UsersPage = () => {
         fetchUsers();
     }, []);
 
-    const openCreateModal = () => {
+    const closeDrawer = () => {
+        setShowModal(false);
         setEditingUser(null);
         setForm({
             nombre: '',
@@ -81,18 +94,28 @@ export const UsersPage = () => {
             cargo: '',
             activo: true
         });
-        
-        // Initialize default permissions matrix
-        const defaultMatrix: Record<string, Record<string, boolean>> = {};
-        MODULES.forEach(mod => {
-            defaultMatrix[mod] = { ver: true, crear: false, editar: false, eliminar: false, exportar: false };
+        setPermissionMatrix(createDefaultMatrix());
+        setNotice(null);
+    };
+
+    const openCreateModal = () => {
+        setEditingUser(null);
+        setNotice(null);
+        setForm({
+            nombre: '',
+            email: '',
+            password: '',
+            rol: 'Operario',
+            cargo: '',
+            activo: true
         });
-        setPermissionMatrix(defaultMatrix);
+        setPermissionMatrix(createDefaultMatrix());
         setShowModal(true);
     };
 
     const openEditModal = (user: User) => {
         setEditingUser(user);
+        setNotice(null);
         setForm({
             nombre: user.nombre,
             email: user.email,
@@ -102,12 +125,7 @@ export const UsersPage = () => {
             activo: user.activo
         });
 
-        let currentMatrix: Record<string, Record<string, boolean>> = {};
-        try {
-            if (user.permisos) {
-                currentMatrix = JSON.parse(user.permisos);
-            }
-        } catch (e) {}
+        const currentMatrix = getPermissionMatrix(user.permisos) ?? {};
 
         MODULES.forEach(mod => {
             if (!currentMatrix[mod]) {
@@ -130,23 +148,39 @@ export const UsersPage = () => {
 
     const handleSaveUser = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
+        setNotice(null);
+
         try {
             const payload = {
                 ...form,
                 permisos: permissionMatrix
             };
 
+            let savedUser: User | null = null;
+
             if (editingUser) {
-                await axios.put(`${API_URL}/users/${editingUser.id}`, payload);
-                alert('Usuario actualizado correctamente');
+                const res = await axios.put(`${API_URL}/users/${editingUser.id}`, payload);
+                savedUser = res.data.user ?? res.data ?? editingUser;
+                setUsers(prev => prev.map(user => user.id === editingUser.id ? { ...user, ...savedUser } : user));
             } else {
-                await axios.post(`${API_URL}/users`, payload);
-                alert('Usuario creado correctamente');
+                const res = await axios.post(`${API_URL}/users`, payload);
+                savedUser = res.data.user ?? res.data ?? { ...payload, id: Date.now(), activo: payload.activo, rol: payload.rol, cargo: payload.cargo || null, permisos: JSON.stringify(payload.permisos) };
+                setUsers(prev => [savedUser as User, ...prev]);
             }
-            setShowModal(false);
-            fetchUsers();
+
+            const successMessage = editingUser ? 'Usuario actualizado correctamente.' : 'Usuario creado correctamente.';
+            closeDrawer();
+            setNotice({ type: 'success', message: successMessage });
         } catch (error: any) {
-            alert(error.response?.data?.error || 'Error al guardar usuario');
+            setNotice({
+                type: 'error',
+                message: error.response?.data?.error || 'Error al guardar usuario.'
+            });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -160,8 +194,30 @@ export const UsersPage = () => {
         }
     };
 
+    useEffect(() => {
+        if (!notice) return;
+
+        const timer = window.setTimeout(() => {
+            setNotice(null);
+        }, 3000);
+
+        return () => window.clearTimeout(timer);
+    }, [notice]);
+
     return (
         <div className="space-y-6">
+            {notice && (
+                <div className={`fixed right-5 top-5 z-[110] rounded-2xl border px-4 py-3 shadow-lg backdrop-blur ${
+                    notice.type === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-red-200 bg-red-50 text-red-700'
+                }`}>
+                    <div className="flex items-center gap-2 text-sm font-bold">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current" />
+                        {notice.message}
+                    </div>
+                </div>
+            )}
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-black text-gray-900">Panel de Usuarios & Permisos</h1>
@@ -236,144 +292,145 @@ export const UsersPage = () => {
                 </div>
             </div>
 
-            {/* Create / Edit User & Matrix Modal */}
-            {showModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-8">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-2xl font-black text-gray-900">
-                                {editingUser ? 'Editar Usuario y Matriz de Permisos' : 'Crear Nuevo Usuario'}
-                            </h2>
-                            <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X /></button>
+            <SideDrawer
+                open={showModal}
+                onClose={closeDrawer}
+                title={editingUser ? 'Editar usuario y permisos' : 'Crear nuevo usuario'}
+                description={editingUser ? 'Actualiza la información general y la matriz de accesos.' : 'Completa los datos del usuario y configura los permisos del sistema.'}
+                size="lg"
+            >
+                <form onSubmit={handleSaveUser} className="space-y-6">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Nombre Completo</label>
+                            <input
+                                type="text"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.nombre}
+                                onChange={e => setForm({ ...form, nombre: e.target.value })}
+                            />
                         </div>
-
-                        <form onSubmit={handleSaveUser} className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Nombre Completo</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.nombre}
-                                        onChange={e => setForm({ ...form, nombre: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Correo / Usuario</label>
-                                    <input
-                                        type="email"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.email}
-                                        onChange={e => setForm({ ...form, email: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Contraseña</label>
-                                    <input
-                                        type="password"
-                                        placeholder={editingUser ? 'Dejar en blanco para no cambiar' : 'Contraseña inicial'}
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.password}
-                                        onChange={e => setForm({ ...form, password: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Rol</label>
-                                    <select
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.rol}
-                                        onChange={e => setForm({ ...form, rol: e.target.value })}
-                                    >
-                                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Cargo</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.cargo}
-                                        onChange={e => setForm({ ...form, cargo: e.target.value })}
-                                        placeholder="Ej: Operador de Torno"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Estado</label>
-                                    <select
-                                        className="w-full px-4 py-3 rounded-xl border bg-gray-50 focus:ring-2 focus:ring-brand-500 outline-none text-sm font-bold"
-                                        value={form.activo ? 'true' : 'false'}
-                                        onChange={e => setForm({ ...form, activo: e.target.value === 'true' })}
-                                    >
-                                        <option value="true">Activo</option>
-                                        <option value="false">Inactivo</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* PERMISSION MATRIX */}
-                            <div className="border-t pt-6">
-                                <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
-                                    <Shield className="w-5 h-5 text-brand-600" /> Matriz de Permisos por Módulo
-                                </h3>
-
-                                <div className="bg-gray-50 p-4 rounded-2xl border overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead>
-                                            <tr className="text-xs font-black uppercase text-gray-400 border-b">
-                                                <th className="py-2">Módulo</th>
-                                                <th className="py-2 text-center">Ver</th>
-                                                <th className="py-2 text-center">Crear</th>
-                                                <th className="py-2 text-center">Editar</th>
-                                                <th className="py-2 text-center">Eliminar</th>
-                                                <th className="py-2 text-center">Exportar</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-200 text-sm font-bold text-gray-700">
-                                            {MODULES.map(mod => (
-                                                <tr key={mod}>
-                                                    <td className="py-3">{mod}</td>
-                                                    {['ver', 'crear', 'editar', 'eliminar', 'exportar'].map(action => {
-                                                        const isChecked = Boolean(permissionMatrix[mod]?.[action]);
-                                                        return (
-                                                            <td key={action} className="py-3 text-center">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => togglePermission(mod, action)}
-                                                                    className="p-1 text-brand-600"
-                                                                >
-                                                                    {isChecked ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-gray-300" />}
-                                                                </button>
-                                                            </td>
-                                                        );
-                                                    })}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-4 pt-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowModal(false)}
-                                    className="flex-1 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-black text-sm"
-                                >
-                                    CANCELAR
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-brand-600 text-white py-3.5 rounded-xl font-black text-sm shadow-md hover:bg-brand-700 transition"
-                                >
-                                    GUARDAR CONFIGURACIÓN
-                                </button>
-                            </div>
-                        </form>
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Correo / Usuario</label>
+                            <input
+                                type="email"
+                                required
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.email}
+                                onChange={e => setForm({ ...form, email: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Contraseña</label>
+                            <input
+                                type="password"
+                                placeholder={editingUser ? 'Dejar en blanco para no cambiar' : 'Contraseña inicial'}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.password}
+                                onChange={e => setForm({ ...form, password: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Rol</label>
+                            <select
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.rol}
+                                onChange={e => setForm({ ...form, rol: e.target.value })}
+                            >
+                                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Cargo</label>
+                            <input
+                                type="text"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.cargo}
+                                onChange={e => setForm({ ...form, cargo: e.target.value })}
+                                placeholder="Ej: Operador de Torno"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-black uppercase tracking-widest text-gray-400">Estado</label>
+                            <select
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                value={form.activo ? 'true' : 'false'}
+                                onChange={e => setForm({ ...form, activo: e.target.value === 'true' })}
+                            >
+                                <option value="true">Activo</option>
+                                <option value="false">Inactivo</option>
+                            </select>
+                        </div>
                     </div>
-                </div>
-            )}
+
+                    <div className="border-t border-slate-200 pt-6">
+                        <h3 className="mb-4 flex items-center gap-2 text-lg font-black text-slate-900">
+                            <Shield className="h-5 w-5 text-brand-600" /> Matriz de Permisos por Módulo
+                        </h3>
+
+                        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-xs font-black uppercase tracking-widest text-slate-400">
+                                        <th className="py-2">Módulo</th>
+                                        <th className="py-2 text-center">Ver</th>
+                                        <th className="py-2 text-center">Crear</th>
+                                        <th className="py-2 text-center">Editar</th>
+                                        <th className="py-2 text-center">Eliminar</th>
+                                        <th className="py-2 text-center">Exportar</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200 text-sm font-bold text-slate-700">
+                                    {MODULES.map(mod => (
+                                        <tr key={mod}>
+                                            <td className="py-3">{mod}</td>
+                                            {['ver', 'crear', 'editar', 'eliminar', 'exportar'].map(action => {
+                                                const isChecked = Boolean(permissionMatrix[mod]?.[action]);
+                                                return (
+                                                    <td key={action} className="py-3 text-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => togglePermission(mod, action)}
+                                                            className="p-1 text-brand-600"
+                                                        >
+                                                            {isChecked ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5 text-slate-300" />}
+                                                        </button>
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={closeDrawer}
+                            className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-200"
+                        >
+                            CANCELAR
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-brand-100 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-75"
+                        >
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    GUARDANDO...
+                                </>
+                            ) : (
+                                'GUARDAR CONFIGURACIÓN'
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </SideDrawer>
         </div>
     );
 };

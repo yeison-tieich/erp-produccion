@@ -27,11 +27,19 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
         const personal = await prisma.personal.findMany();
         const totalPayroll = personal.reduce((acc, p) => acc + Number(p.salario || 0) + Number(p.prestaciones || 0) + Number(p.recargos || 0), 0);
 
-        const ncs = await prisma.noConformidad.findMany({ select: { costo_estimado: true } });
-        const reclamos = await prisma.reclamoCliente.findMany({ select: { costo_estimado: true } });
-        const totalNC = ncs.reduce((acc, nc) => acc + Number(nc.costo_estimado || 0), 0);
-        const totalClaims = reclamos.reduce((acc, r) => acc + Number(r.costo_estimado || 0), 0);
-        const totalNonQualityCost = totalNC + totalClaims;
+        const qualityCostRows = await prisma.costoNoCalidad.groupBy({
+            by: ['categoria'],
+            _sum: { monto: true }
+        });
+        const nonQualityCostBreakdown = {
+            FALLA_INTERNA: 0,
+            FALLA_EXTERNA: 0,
+            PREVENCION_EVALUACION: 0
+        };
+        qualityCostRows.forEach(row => {
+            nonQualityCostBreakdown[row.categoria] = Number(row._sum.monto || 0);
+        });
+        const totalNonQualityCost = Object.values(nonQualityCostBreakdown).reduce((sum, value) => sum + value, 0);
 
         const totalRevenue = ordenes.reduce((acc, o) => acc + (Number(o.cantidad_fabricar) * Number(o.precio_venta || 0)), 0);
         const totalCosts = totalMPCost + totalProductionCost + totalMaintenanceCost + totalToolsCost + totalPayroll;
@@ -45,6 +53,7 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
                 herramientas: totalToolsCost,
                 nomina: totalPayroll,
                 noCalidad: totalNonQualityCost,
+                noCalidadPorCategoria: nonQualityCostBreakdown,
                 total: totalCosts
             },
             ingresos: totalRevenue,

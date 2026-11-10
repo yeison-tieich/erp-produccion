@@ -24,8 +24,11 @@ import syncRoutes from './routes/sync.routes';
 import usersRoutes from './routes/users.routes';
 import financesRoutes from './routes/finances.routes';
 import qualityRoutes from './routes/quality.routes';
+import { authenticateToken } from './middleware/auth.middleware';
+import { authorizeModulePermission } from './middleware/modulePermissions.middleware';
 
-dotenv.config();
+const envPath = path.resolve(__dirname, '../.env');
+dotenv.config({ path: envPath });
 
 
 if (!process.env.JWT_SECRET) {
@@ -40,11 +43,11 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const allowedOrigins = [
   'https://erp-produccion-dun.vercel.app',
-  'capacitor://www.mecaytro.parrandavallenatanuevayork.com',
   'capacitor://localhost',
   'http://localhost',
   'https://localhost',
-
+  'http://192.168.20.100',
+  'http://192.168.20.100:3000',
 ];
 
 if (process.env.FRONTEND_URL) {
@@ -76,25 +79,25 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/inventory', inventoryRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/tasks', taskRoutes);
+app.use('/api/inventory', authenticateToken, authorizeModulePermission('Inventario'), inventoryRoutes);
+app.use('/api/orders', authenticateToken, authorizeModulePermission('Órdenes'), orderRoutes);
+app.use('/api/tasks', authenticateToken, authorizeModulePermission('Tareas'), taskRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/personal', personalRoutes);
-app.use('/api/machines', machineRoutes);
+app.use('/api/clients', authenticateToken, authorizeModulePermission('Clientes'), clientRoutes);
+app.use('/api/personal', authenticateToken, authorizeModulePermission('Personal'), personalRoutes);
+app.use('/api/machines', authenticateToken, authorizeModulePermission('Mantenimiento'), machineRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/operations', operationsRoutes);
-app.use('/api/special-projects', specialProjectsRoutes);
-app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/special-projects', authenticateToken, authorizeModulePermission('Proyectos Especiales'), specialProjectsRoutes);
+app.use('/api/maintenance', authenticateToken, authorizeModulePermission('Mantenimiento'), maintenanceRoutes);
 app.use('/api/settings', settingsRoutes);
 
-app.use('/api/tools', toolsRoutes);
-app.use('/api/loans', loansRoutes);
-app.use('/api/pedidos', pedidosRoutes);
+app.use('/api/tools', authenticateToken, authorizeModulePermission('Herramientas'), toolsRoutes);
+app.use('/api/loans', authenticateToken, authorizeModulePermission('Herramientas'), loansRoutes);
+app.use('/api/pedidos', authenticateToken, authorizeModulePermission('Pedidos'), pedidosRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/finances', financesRoutes);
+app.use('/api/finances', authenticateToken, authorizeModulePermission('Finanzas'), financesRoutes);
 app.use('/api/quality', qualityRoutes);
 
 
@@ -111,4 +114,3 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('could not get server.address():', err);
   }
 });
-

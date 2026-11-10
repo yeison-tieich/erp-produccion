@@ -6,9 +6,12 @@ import { LayoutDashboard, Package, ClipboardList, Users, LogOut, Menu, X, Factor
 import clsx from 'clsx';
 import { useConfigStore } from '../store/config.store';
 import { SyncIndicator } from '../components/SyncIndicator';
+import { canAccessModule } from '../utils/permissions';
+import axios from 'axios';
+import { API_URL } from '../api';
 
 export const DashboardLayout = () => {
-    const { user, logout } = useAuthStore();
+    const { user, token, logout, setUser } = useAuthStore();
     const { fetchUserSettings, fetchGlobalSettings } = useConfigStore();
     const navigate = useNavigate();
     const location = useLocation();
@@ -21,6 +24,13 @@ export const DashboardLayout = () => {
         fetchUserSettings();
         fetchGlobalSettings();
     }, []);
+
+    React.useEffect(() => {
+        if (!token) return;
+        axios.get(`${API_URL}/users/me`)
+            .then(response => setUser(response.data))
+            .catch(error => console.error('No se pudo actualizar el perfil y sus permisos:', error));
+    }, [token, setUser]);
 
     // Close mobile menu on route change
     React.useEffect(() => {
@@ -68,14 +78,14 @@ export const DashboardLayout = () => {
             isGroup: true,
             roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos'],
             subItems: [
-                { icon: Package, label: 'Inventario MP', path: '/inventory', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
+                { icon: Package, label: 'Inventario MP', path: '/inventory', permissionModule: 'Inventario', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
                 { icon: Factory, label: 'Catálogo Productos', path: '/products', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Diseño', 'Contabilidad', 'Compras'] },
-                { icon: Wrench, label: 'Herramientas', path: '/tools', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
-                { icon: ClipboardList, label: 'Préstamos', path: '/loans', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Recursos Humanos', 'Compras'] },
-                { icon: Truck, label: 'Pedidos', path: '/pedidos', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
+                { icon: Wrench, label: 'Herramientas', path: '/tools', permissionModule: 'Herramientas', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
+                { icon: ClipboardList, label: 'Préstamos', path: '/loans', permissionModule: 'Herramientas', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Recursos Humanos', 'Compras'] },
+                { icon: Truck, label: 'Pedidos', path: '/pedidos', permissionModule: 'Pedidos', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Almacén', 'Contabilidad', 'Compras'] },
             ]
         },
-        { icon: ClipboardList, label: 'Órdenes', path: '/orders', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
+        { icon: ClipboardList, label: 'Órdenes', path: '/orders', permissionModule: 'Órdenes', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Compras'] },
         {
             label: 'Calidad',
             icon: ShieldCheck,
@@ -94,18 +104,24 @@ export const DashboardLayout = () => {
                 { icon: FileText, label: 'Documentos SGC', path: '/quality/documents', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Calidad', 'Producción'] },
             ]
         },
-        { icon: Users, label: 'Clientes', path: '/clients', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Contabilidad', 'Compras', 'Ventas'] },
-        { icon: Users, label: 'Personal', path: '/personal', roles: ['Administrador'] },
-        { icon: Settings, label: 'Mantenimiento', path: '/maintenance', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
-        { icon: Factory, label: 'Proyectos', path: '/special-projects', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Diseño', 'Contabilidad', 'Compras'] },
+        { icon: Users, label: 'Clientes', path: '/clients', permissionModule: 'Clientes', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Contabilidad', 'Compras', 'Ventas'] },
+        { icon: Users, label: 'Personal', path: '/personal', permissionModule: 'Personal', roles: ['Administrador'] },
+        { icon: Settings, label: 'Mantenimiento', path: '/maintenance', permissionModule: 'Mantenimiento', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Contabilidad', 'Compras'] },
+        { icon: Factory, label: 'Proyectos', path: '/special-projects', permissionModule: 'Proyectos Especiales', roles: ['Administrador', 'Supervisor', 'Gerencia', 'Producción', 'Diseño', 'Contabilidad', 'Compras'] },
         { icon: Settings, label: 'Config', path: '/settings', roles: ['Administrador'] },
-        { icon: Factory, label: 'Tareas', path: '/tasks', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
+        { icon: Factory, label: 'Tareas', path: '/tasks', permissionModule: 'Tareas', roles: ['Administrador', 'Supervisor', 'Operario', 'Gerencia', 'Producción', 'Contabilidad', 'Compras', 'Diseño', 'Recursos Humanos', 'Almacén'] },
         { icon: Users, label: 'Usuarios', path: '/users', roles: ['Administrador', 'Gerencia', 'Compras'] },
-        { icon: ClipboardList, label: 'Finanzas', path: '/finances', roles: ['Administrador'] },
+        { icon: ClipboardList, label: 'Finanzas', path: '/finances', permissionModule: 'Finanzas', roles: ['Administrador'] },
     ];
 
+    const isMenuItemAllowed = (item: { roles: string[]; permissionModule?: string }) =>
+        user.rol === 'Administrador' || (item.permissionModule
+            ? canAccessModule(user.permisos, item.permissionModule, item.roles.includes(user.rol))
+            : item.roles.includes(user.rol));
 
-    const filteredItems = menuItems.filter(item => item.roles.includes(user.rol));
+    const filteredItems = menuItems.filter(item => item.isGroup
+        ? item.subItems?.some(isMenuItemAllowed)
+        : isMenuItemAllowed(item));
 
     // Check if a group has an active sub-item
     const isGroupActive = (item: typeof menuItems[0]) => {
@@ -134,7 +150,7 @@ export const DashboardLayout = () => {
                     <nav className="hidden lg:flex items-center justify-center gap-1 flex-1 flex-wrap">
                         {filteredItems.map((item) => {
                             if (item.isGroup) {
-                                const subItems = item.subItems?.filter(si => si.roles.includes(user.rol)) || [];
+                                const subItems = item.subItems?.filter(isMenuItemAllowed) || [];
                                 if (subItems.length === 0) return null;
                                 const groupActive = isGroupActive(item);
                                 const isOpen = openDropdown === item.label;
@@ -253,7 +269,19 @@ export const DashboardLayout = () => {
 
                 {/* Mobile Dropdown Menu */}
                 {isMobileMenuOpen && (
-                    <div className="lg:hidden glass-panel rounded-2xl mt-2 p-3 shadow-2xl max-h-[70vh] overflow-y-auto animate-in fade-in slide-in-from-top-2 border border-black/10 bg-white/95 backdrop-blur-xl">
+                    <div className="lg:hidden fixed inset-0 top-0 z-[999] bg-white/98 backdrop-blur-xl flex flex-col overflow-y-auto">
+                        {/* Header row in full-screen menu */}
+                        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-black/5">
+                            <Link to="/" className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-xl bg-brand-400 flex items-center justify-center">
+                                    <LayoutDashboard className="w-4 h-4 text-brand-950" />
+                                </div>
+                                <span className="font-bold text-slate-800 text-sm">Control MECA&amp;TRO</span>
+                            </Link>
+                            <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-slate-700">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
                         {/* User info */}
                         <div className="flex items-center gap-3 px-3 py-3 border-b border-black/5 mb-2">
                             <div className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 text-brand-600 flex items-center justify-center font-black">
@@ -268,7 +296,7 @@ export const DashboardLayout = () => {
                         <nav className="space-y-1">
                             {filteredItems.map((item) => {
                                 if (item.isGroup) {
-                                    const subItems = item.subItems?.filter(si => si.roles.includes(user.rol)) || [];
+                                    const subItems = item.subItems?.filter(isMenuItemAllowed) || [];
                                     if (subItems.length === 0) return null;
                                     const groupActive = isGroupActive(item);
                                     const isOpen = openDropdown === item.label;
@@ -349,7 +377,7 @@ export const DashboardLayout = () => {
             </header>
 
             {/* ===== MAIN CONTENT ===== */}
-            <main className="flex-1 px-4 lg:px-6 pb-6 relative">
+            <main className="w-full min-w-0 flex-1 px-3 pt-2 pb-6 relative lg:px-6">
                 <Outlet />
             </main>
         </div>

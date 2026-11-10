@@ -3,10 +3,43 @@ import { Request, Response } from 'express';
 import prisma from '../prisma';
 import path from 'path';
 import fs from 'fs';
-import { uploadToCloudinary } from '../utils/cloudinary';
 
 const PRODUCT_DASHBOARD_CLIENTS = ['CHEA ING', 'SERIES', 'SIEMENS', 'TNK', 'ARNESES Y GOMAS'];
 const PRODUCT_DASHBOARD_ROLES = ['Administrador', 'Supervisor', 'Gerencia', 'Diseño', 'Contabilidad', 'Compras'];
+const PRODUCT_IMAGE_PREFIX = '/uploads/products/';
+const PRODUCT_PDF_PREFIX = '/uploads/products/';
+
+const removeLocalProductPdf = async (pdfUrl?: string | null) => {
+    if (!pdfUrl?.startsWith(PRODUCT_PDF_PREFIX)) return;
+
+    const relativePath = pdfUrl.slice(PRODUCT_PDF_PREFIX.length);
+    if (!relativePath.startsWith('plans/') || path.basename(relativePath) !== relativePath.slice('plans/'.length)) return;
+
+    const productFilesDirectory = path.resolve(__dirname, '../../uploads/products');
+    const pdfPath = path.resolve(productFilesDirectory, relativePath);
+    const pathFromRoot = path.relative(productFilesDirectory, pdfPath);
+    if (!relativePath || pathFromRoot.startsWith('..') || path.isAbsolute(pathFromRoot)) return;
+
+    await fs.promises.unlink(pdfPath).catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.error('Could not remove local product PDF:', error);
+        }
+    });
+};
+
+const removeLocalProductImage = async (imageUrl?: string | null) => {
+    if (!imageUrl?.startsWith(PRODUCT_IMAGE_PREFIX)) return;
+
+    const filename = imageUrl.slice(PRODUCT_IMAGE_PREFIX.length);
+    if (!filename || path.basename(filename) !== filename) return;
+
+    const imagePath = path.resolve(__dirname, '../../uploads/products', filename);
+    await fs.promises.unlink(imagePath).catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.error('Could not remove local product image:', error);
+        }
+    });
+};
 
 const normalizeClientName = (name?: string | null) => String(name || '').trim().toUpperCase();
 
@@ -164,10 +197,12 @@ export const getProducts = async (req: Request, res: Response) => {
                 stock_minimo: true,
                 stock_maximo: true,
                 ancho_tira: true,
+                fuerza_troquelado: true,
                 medidas_pieza: true,
                 piezas_lamina_4x8: true,
                 piezas_lamina_2x1: true,
                 empaque_de: true,
+                ubicacion: true,
                 plano_pdf_url: true,
                 activo: true,
                 precio_venta: true,
@@ -193,7 +228,7 @@ export const createProduct = async (req: Request, res: Response) => {
     const {
         sku_producto, nombre_producto, descripcion, cliente_id, acabado,
         imagen_url, stock_actual, ubicacion,
-        medidas_pieza, piezas_lamina_4x8, piezas_lamina_2x1, empaque_de,
+        ancho_tira, fuerza_troquelado, medidas_pieza, piezas_lamina_4x8, piezas_lamina_2x1, empaque_de,
         precio_venta, stock_minimo, stock_maximo, materials, routes
     } = req.body;
     try {
@@ -209,6 +244,8 @@ export const createProduct = async (req: Request, res: Response) => {
                 stock_minimo: stock_minimo !== undefined && stock_minimo !== '' ? Number(stock_minimo) : null,
                 stock_maximo: stock_maximo !== undefined && stock_maximo !== '' ? Number(stock_maximo) : null,
                 ubicacion,
+                ancho_tira: ancho_tira !== undefined && ancho_tira !== '' ? Number(ancho_tira) : null,
+                fuerza_troquelado: fuerza_troquelado !== undefined && fuerza_troquelado !== '' ? Number(fuerza_troquelado) : null,
                 medidas_pieza,
                 piezas_lamina_4x8,
                 piezas_lamina_2x1,
@@ -242,7 +279,8 @@ export const updateProduct = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { 
         sku_producto, nombre_producto, descripcion, cliente_id, acabado,
-        ancho_tira, medidas_pieza, empaque_de, activo, precio_venta, stock_minimo, stock_maximo, materials
+        ancho_tira, fuerza_troquelado, medidas_pieza, piezas_lamina_4x8, piezas_lamina_2x1,
+        empaque_de, activo, precio_venta, stock_minimo, stock_maximo, materials
     } = req.body;
     try {
         // Update product basic info
@@ -255,7 +293,12 @@ export const updateProduct = async (req: Request, res: Response) => {
                 cliente_id: cliente_id ? Number(cliente_id) : null,
                 acabado,
                 ancho_tira: ancho_tira ? Number(ancho_tira) : null,
+                fuerza_troquelado: fuerza_troquelado !== undefined
+                    ? (fuerza_troquelado !== '' && fuerza_troquelado !== null ? Number(fuerza_troquelado) : null)
+                    : undefined,
                 medidas_pieza,
+                piezas_lamina_4x8,
+                piezas_lamina_2x1,
                 empaque_de,
                 activo: activo !== undefined ? Boolean(activo) : undefined,
                 precio_venta: precio_venta !== undefined ? Number(precio_venta) : undefined,
@@ -301,9 +344,14 @@ export const deleteProduct = async (req: Request, res: Response) => {
         await prisma.listaMateriales.deleteMany({ where: { producto_id: Number(id) } });
         await prisma.rutaFabricacion.deleteMany({ where: { producto_id: Number(id) } });
         
+        const product = await prisma.producto.findUnique({
+            where: { id: Number(id) },
+            select: { imagen_url: true }
+        });
         await prisma.producto.delete({
             where: { id: Number(id) }
         });
+        await removeLocalProductImage(product?.imagen_url);
         res.json({ message: 'Product deleted successfully' });
     } catch (error) {
         console.error('deleteProduct error:', error);
@@ -363,43 +411,83 @@ export const getProductMovements = async (req: Request, res: Response) => {
 
 export const uploadProductImage = async (req: Request, res: Response) => {
     const { id } = req.params;
-    try {
-        const file = (req as any).file;
-        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const result = await uploadToCloudinary(file.buffer, 'products');
-        const imageUrl = result.secure_url;
+    try {
+        const productId = Number(id);
+        const existingProduct = await prisma.producto.findUnique({
+            where: { id: productId },
+            select: { imagen_url: true }
+        });
+
+        if (!existingProduct) {
+            await fs.promises.unlink(file.path);
+            return res.status(404).json({ error: 'Product not found' });
+        }
 
         const product = await prisma.producto.update({
-            where: { id: Number(id) },
-            data: { imagen_url: imageUrl }
+            where: { id: productId },
+            data: { imagen_url: `/uploads/products/${file.filename}` }
         });
+
+        await removeLocalProductImage(existingProduct.imagen_url);
 
         res.json(product);
     } catch (error) {
         console.error('uploadProductImage error:', error);
-        res.status(500).json({ error: 'Error uploading image to Cloudinary' });
+        await fs.promises.unlink(file.path).catch(cleanupError => {
+            if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.error('Could not remove failed product image upload:', cleanupError);
+            }
+        });
+        res.status(500).json({ error: 'Error saving product image on server' });
     }
 };
 
 export const uploadProductPDF = async (req: Request, res: Response) => {
     const { id } = req.params;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No PDF file uploaded' });
+
     try {
-        const file = (req as any).file;
-        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+        const content = await fs.promises.readFile(file.path);
+        if (content.subarray(0, 1024).indexOf(Buffer.from('%PDF-')) === -1) {
+            await fs.promises.unlink(file.path);
+            return res.status(400).json({ error: 'El archivo no contiene un documento PDF válido.' });
+        }
 
-        const result = await uploadToCloudinary(file.buffer, 'products');
-        const pdfUrl = result.secure_url;
+        const productId = Number(id);
+        if (!Number.isInteger(productId) || productId <= 0) {
+            await fs.promises.unlink(file.path);
+            return res.status(400).json({ error: 'Invalid product ID' });
+        }
 
+        const existingProduct = await prisma.producto.findUnique({
+            where: { id: productId },
+            select: { plano_pdf_url: true }
+        });
+        if (!existingProduct) {
+            await fs.promises.unlink(file.path);
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        const pdfUrl = `${PRODUCT_PDF_PREFIX}plans/${file.filename}`;
         const product = await prisma.producto.update({
-            where: { id: Number(id) },
+            where: { id: productId },
             data: { plano_pdf_url: pdfUrl }
         });
 
+        await removeLocalProductPdf(existingProduct.plano_pdf_url);
         res.json(product);
     } catch (error) {
         console.error('uploadProductPDF error:', error);
-        res.status(500).json({ error: 'Error uploading PDF to Cloudinary' });
+        await fs.promises.unlink(file.path).catch(cleanupError => {
+            if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.error('Could not remove failed product PDF upload:', cleanupError);
+            }
+        });
+        res.status(500).json({ error: 'Error saving product PDF on server' });
     }
 };
 export const updateProductRoutes = async (req: Request, res: Response) => {

@@ -3,6 +3,7 @@ import { API_URL } from '../api';
 import { syncQueueService } from './syncQueueService';
 import { databaseService } from './databaseService';
 import { ordenTrabajoRepository } from '../repositories/ordenTrabajoRepository';
+import { createUUID } from '../utils/uuid';
 
 class SyncService {
     private isSyncing = false;
@@ -151,7 +152,7 @@ class SyncService {
             // "Last Write Wins" simplificado: El servidor suele ganar en pull si no hay conflicto local crítico.
         } else {
             // No existe localmente, insertar
-            const id_local = crypto.randomUUID();
+            const id_local = createUUID();
             
             // Filtrar cleanItem para que solo incluya valores primitivos (no objetos ni arreglos como 'producto')
             const cleanItem: any = {};

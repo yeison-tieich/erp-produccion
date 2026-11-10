@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfigStore } from '../store/config.store';
+import { useAuthStore } from '../store/auth.store';
 
 interface Operation {
     id: number;
@@ -20,6 +21,8 @@ interface Operation {
 }
 
 export const Settings = () => {
+    const user = useAuthStore(state => state.user);
+    const isAdministrator = user?.rol === 'Administrador';
     const {
         userSettings, globalSettings, fetchUserSettings, fetchGlobalSettings,
         updateUserSettings, updateGlobalSettings, applyTheme, loading: storeLoading
@@ -252,9 +255,11 @@ export const Settings = () => {
                             <div className="p-10 space-y-10">
                                 <div>
                                     <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight">Interfaz y Tema</h2>
-                                    <p className="text-gray-400 text-xs font-bold uppercase mt-1">Personaliza cómo ves el sistema</p>
+                                    <p className="text-gray-400 text-xs font-bold uppercase mt-1">Tema compartido en todos los perfiles</p>
                                 </div>
 
+                                {isAdministrator ? (
+                                    <>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     {(['Claro', 'Oscuro', 'Automático'] as const).map(mode => (
                                         <button
@@ -378,6 +383,12 @@ export const Settings = () => {
                                         <Save className="w-5 h-5" /> {saving ? 'Guardando...' : 'GUARDAR PREFERENCIAS'}
                                     </button>
                                 </div>
+                                    </>
+                                ) : (
+                                    <div className="rounded-2xl border border-brand-100 bg-brand-50 p-5 text-sm font-medium text-brand-800">
+                                        El tema y los colores los administra el perfil Administrador y se aplican a todos los usuarios.
+                                    </div>
+                                )}
                             </div>
                         )}
 

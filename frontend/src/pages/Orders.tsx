@@ -1,6 +1,6 @@
 
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { generateOrderPDF } from '../utils/pdfGenerator';
 import {
@@ -55,6 +55,10 @@ import { useOrdersStore } from '../store/orders.store';
 
 export const Orders = () => {
     const navigate = useNavigate();
+    const location = useLocation();
+    const [searchParams] = useSearchParams();
+    const requestedOrderId = searchParams.get('orderId');
+    const deepLinkedOrder = useRef<string | null>(null);
     const {
         orders,
         isLoading: loading,
@@ -81,9 +85,21 @@ export const Orders = () => {
     const [personalList, setPersonalList] = useState<any[]>([]);
     const [machinesList, setMachinesList] = useState<any[]>([]);
     const [operationsList, setOperationsList] = useState<any[]>([]);
+    const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
+    const [finishingTaskId, setFinishingTaskId] = useState<number | null>(null);
+    const [taskDetailId, setTaskDetailId] = useState<number | null>(null);
+    const [taskDetailForm, setTaskDetailForm] = useState({
+        tiempo_estimado_min: '',
+        duracion_real_min: '',
+        fecha_hora_inicio: '',
+        fecha_hora_fin: '',
+        comentarios: ''
+    });
 
     const [showCompleted, setShowCompleted] = useState(false);
-    const [statusFilter, setStatusFilter] = useState('Todos');
+    const [statusFilter, setStatusFilter] = useState(() =>
+        searchParams.get('status') || (location.pathname.endsWith('/live-plant') ? 'En Progreso' : 'Todos')
+    );
 
     const [formData, setFormData] = useState({
         tipo_orden: 'PRODUCCION_SERIE',
@@ -124,6 +140,89 @@ export const Orders = () => {
         }
     };
 
+    const formatDateTimeLocal = (value: string | Date | null | undefined) => {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        const offset = date.getTimezoneOffset();
+        const localDate = new Date(date.getTime() - offset * 60000);
+        return localDate.toISOString().slice(0, 16);
+    };
+
+    const getCurrentUserName = () => {
+        try {
+            const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            return savedUser?.nombre || savedUser?.username || savedUser?.email || 'Sistema';
+        } catch {
+            return 'Sistema';
+        }
+    };
+
+    const openTaskDetailModal = (task: any) => {
+        setTaskDetailId(task.id);
+        setTaskDetailForm({
+            tiempo_estimado_min: task.tiempo_estimado_min?.toString() || '',
+            duracion_real_min: task.duracion_real_min?.toString() || task.tiempo_real_min?.toString() || '',
+            fecha_hora_inicio: formatDateTimeLocal(task.fecha_hora_inicio),
+            fecha_hora_fin: formatDateTimeLocal(task.fecha_hora_fin),
+            comentarios: task.comentarios || ''
+        });
+        setShowTaskDetailModal(true);
+    };
+
+    const handleSaveTaskDetails = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!taskDetailId) return;
+
+        const tiempoEstimado = taskDetailForm.tiempo_estimado_min === '' ? undefined : Number(taskDetailForm.tiempo_estimado_min);
+        const duracionReal = taskDetailForm.duracion_real_min === '' ? undefined : Number(taskDetailForm.duracion_real_min);
+
+        if ((tiempoEstimado !== undefined && Number.isNaN(tiempoEstimado)) || (duracionReal !== undefined && Number.isNaN(duracionReal))) {
+            alert('Los tiempos no son válidos. Verifica los valores ingresados.');
+            return;
+        }
+
+        if (taskDetailForm.fecha_hora_inicio && taskDetailForm.fecha_hora_fin) {
+            const start = new Date(taskDetailForm.fecha_hora_inicio);
+            const end = new Date(taskDetailForm.fecha_hora_fin);
+            if (end < start) {
+                alert('La hora final no puede ser menor que la hora de inicio.');
+                return;
+            }
+        }
+
+        try {
+            await axios.put(`${API_URL}/tasks/${taskDetailId}/update-details`, {
+                tiempo_estimado_min: tiempoEstimado,
+                duracion_real_min: duracionReal,
+                fecha_hora_inicio: taskDetailForm.fecha_hora_inicio || undefined,
+                fecha_hora_fin: taskDetailForm.fecha_hora_fin || undefined,
+                comentarios: taskDetailForm.comentarios,
+                usuario_ultima_edicion: getCurrentUserName()
+            });
+
+            setShowTaskDetailModal(false);
+            setTaskDetailId(null);
+            if (selectedOrder) {
+                const orderId = selectedOrder.id || selectedOrder.id_server;
+                const res = await axios.get(`${API_URL}/orders/${orderId}/details`);
+                setSelectedOrder(res.data);
+                fetchOrders();
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Error al actualizar detalles de la tarea';
+            alert(errorMsg);
+        }
+    };
+
+    const getTaskAuditInfo = (task: any) => {
+        const match = String(task?.comentarios || '').match(/\[Última edición:\s*(.*?)\s*•\s*(.*?)\]$/);
+        if (match) {
+            return { user: match[1], timestamp: match[2] };
+        }
+        return { user: null, timestamp: null };
+    };
+
     const handleStartTask = async (taskId: number) => {
         try {
             await axios.post(`${API_URL}/tasks/${taskId}/start`);
@@ -139,10 +238,12 @@ export const Orders = () => {
     };
 
     const handleFinishTask = async (taskId: number) => {
+        if (finishingTaskId !== null) return;
         const buena = prompt("Cantidad BUENA:", "0");
         const mala = prompt("Cantidad MALA (Scrap):", "0");
         if (buena === null || mala === null) return;
 
+        setFinishingTaskId(taskId);
         try {
             await axios.post(`${API_URL}/tasks/${taskId}/finish`, {
                 cantidad_buena: Number(buena),
@@ -157,6 +258,8 @@ export const Orders = () => {
             }
         } catch (error) {
             alert('Error al finalizar tarea');
+        } finally {
+            setFinishingTaskId(null);
         }
     };
 
@@ -378,6 +481,14 @@ export const Orders = () => {
             setShowDetailModal(true);
         }
     };
+
+    useEffect(() => {
+        if (!requestedOrderId || !orders?.length || deepLinkedOrder.current === requestedOrderId) return;
+        const order = orders.find(item => String(item.id || item.id_server) === requestedOrderId);
+        if (!order) return;
+        deepLinkedOrder.current = requestedOrderId;
+        void openDetailModal(order);
+    }, [orders, requestedOrderId, openDetailModal]);
 
     const filteredOrders = (orders || []).filter(order => {
         const matchesStatus = statusFilter === 'Todos' || order.estado_ot === statusFilter;
@@ -712,6 +823,108 @@ export const Orders = () => {
                 </div>
             )}
 
+            {/* TASK DETAILS MODAL */}
+            {showTaskDetailModal && selectedOrder && taskDetailId !== null && (
+                <div className="fixed inset-0 bg-black/60 shadow-2xl backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] max-w-2xl w-full p-8">
+                        <div className="flex items-start justify-between gap-4 mb-6">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-brand-600">Edición de tarea</p>
+                                <h3 className="text-2xl font-black text-slate-800 mt-2">Ajustar tiempos y rendimiento</h3>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowTaskDetailModal(false);
+                                    setTaskDetailId(null);
+                                }}
+                                className="p-2 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition"
+                                title="Cerrar"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveTaskDetails} className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <label className="space-y-2">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tiempo estimado (min)</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={taskDetailForm.tiempo_estimado_min}
+                                        onChange={(e) => setTaskDetailForm(prev => ({ ...prev, tiempo_estimado_min: e.target.value }))}
+                                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none focus:border-brand-500"
+                                    />
+                                </label>
+                                <label className="space-y-2">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tiempo real (min)</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={taskDetailForm.duracion_real_min}
+                                        onChange={(e) => setTaskDetailForm(prev => ({ ...prev, duracion_real_min: e.target.value }))}
+                                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none focus:border-brand-500"
+                                    />
+                                </label>
+                                <label className="space-y-2">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Inicio</span>
+                                    <input
+                                        type="datetime-local"
+                                        value={taskDetailForm.fecha_hora_inicio}
+                                        onChange={(e) => setTaskDetailForm(prev => ({ ...prev, fecha_hora_inicio: e.target.value }))}
+                                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none focus:border-brand-500"
+                                    />
+                                </label>
+                                <label className="space-y-2">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Fin</span>
+                                    <input
+                                        type="datetime-local"
+                                        value={taskDetailForm.fecha_hora_fin}
+                                        onChange={(e) => setTaskDetailForm(prev => ({ ...prev, fecha_hora_fin: e.target.value }))}
+                                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none focus:border-brand-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <label className="space-y-2 block">
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Comentarios / observación</span>
+                                <textarea
+                                    rows={4}
+                                    value={taskDetailForm.comentarios}
+                                    onChange={(e) => setTaskDetailForm(prev => ({ ...prev, comentarios: e.target.value }))}
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-700 outline-none focus:border-brand-500"
+                                    placeholder="Ej: Ajuste de tiempo real por parada técnica o cambio de secuencia..."
+                                />
+                            </label>
+
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-[11px] font-bold text-slate-500">
+                                <span>Estadísticas de producción del módulo de órdenes.</span>
+                                <span className="text-brand-700">{selectedOrder?.numero_ot}</span>
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowTaskDetailModal(false);
+                                        setTaskDetailId(null);
+                                    }}
+                                    className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-3 rounded-2xl bg-brand-600 text-white font-black hover:bg-brand-700 transition shadow-lg shadow-brand-100"
+                                >
+                                    Guardar cambios
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {/* CREATE/EDIT MODAL */}
             {(showCreateModal || showEditModal) && (
                 <div className="fixed inset-0 bg-slate-900/60 shadow-2xl backdrop-blur-sm z-[110] flex items-center justify-center p-4">
@@ -1001,7 +1214,9 @@ export const Orders = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
-                                            {selectedOrder.tareas.map((tarea: any, index: number) => (
+                                            {selectedOrder.tareas.map((tarea: any, index: number) => {
+                                                const auditInfo = getTaskAuditInfo(tarea);
+                                                return (
                                                 <tr key={tarea.id} className="hover:bg-gray-50/80 transition-colors">
                                                     <td className="p-6 text-center font-black text-slate-400 text-xs">#{tarea.secuencia_ot ?? tarea.rutaFabricacion?.no_operacion ?? '--'}</td>
                                                     <td className="p-6">
@@ -1045,30 +1260,26 @@ export const Orders = () => {
                                                         </span>
                                                     </td>
                                                     <td className="p-6">
-                                                        <div className="flex flex-col text-[10px] font-black text-gray-500 gap-1 group relative">
+                                                        <div className="flex flex-col text-[10px] font-black text-gray-500 gap-2 group relative">
                                                             <div className="flex items-center justify-between">
                                                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-brand-600" /> {tarea.fecha_hora_inicio ? new Date(tarea.fecha_hora_inicio).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
                                                                 <button
-                                                                    onClick={() => {
-                                                                        const newStart = prompt("Nueva hora inicio (YYYY-MM-DD HH:MM):", tarea.fecha_hora_inicio ? new Date(tarea.fecha_hora_inicio).toISOString().slice(0, 16).replace('T', ' ') : '');
-                                                                        const newEnd = prompt("Nueva hora fin (YYYY-MM-DD HH:MM):", tarea.fecha_hora_fin ? new Date(tarea.fecha_hora_fin).toISOString().slice(0, 16).replace('T', ' ') : '');
-                                                                        if (newStart !== null || newEnd !== null) {
-                                                                            axios.put(`${API_URL}/tasks/${tarea.id}/update-details`, {
-                                                                                fecha_hora_inicio: newStart || undefined,
-                                                                                fecha_hora_fin: newEnd || undefined
-                                                                            }).then(() => openDetailModal(selectedOrder));
-                                                                        }
-                                                                    }}
+                                                                    onClick={() => openTaskDetailModal(tarea)}
                                                                     className="opacity-0 group-hover:opacity-100 p-1 text-brand-600 hover:bg-brand-50 rounded transition-all"
                                                                     title="Editar tiempos"
                                                                 >
                                                                     <Edit2 className="w-3 h-3" />
                                                                 </button>
                                                             </div>
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="flex items-center gap-1 text-gray-400 text-[8px]">{tarea.fecha_hora_fin ? new Date(tarea.fecha_hora_fin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
-                                                                <span className="text-blue-600 font-black">{((tarea.duracion_real_min || 0) / 60).toFixed(2)} hrs</span>
+                                                            <div className="flex items-center justify-between gap-2 text-[8px]">
+                                                                <span className="flex items-center gap-1 text-gray-400">{tarea.fecha_hora_fin ? new Date(tarea.fecha_hora_fin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
+                                                                <span className="text-gray-400">Estimado: {((tarea.tiempo_estimado_min || 0) / 60).toFixed(2)} hrs</span>
                                                             </div>
+                                                            <div className="flex items-center justify-between gap-2 text-[8px]">
+                                                                <span className="text-gray-500">Real: {(((tarea.tiempo_real_min ?? tarea.duracion_real_min) || 0) / 60).toFixed(2)} hrs</span>
+                                                                {auditInfo.user && <span className="text-brand-600">Por {auditInfo.user}</span>}
+                                                            </div>
+                                                            {auditInfo.timestamp && <div className="text-[7px] text-gray-400">{auditInfo.timestamp}</div>}
                                                         </div>
                                                     </td>
                                                     <td className="p-6">
@@ -1101,11 +1312,12 @@ export const Orders = () => {
                                                                     </button>
                                                                     <button
                                                                         onClick={() => handleFinishTask(tarea.id)}
-                                                                        className="p-2 bg-green-50 text-green-600 hover:bg-green-600 hover:text-white rounded-lg transition flex items-center gap-1 text-xs font-bold"
+                                                                        disabled={finishingTaskId === tarea.id}
+                                                                        className="p-2 bg-green-50 text-green-600 hover:bg-green-600 hover:text-white rounded-lg transition flex items-center gap-1 text-xs font-bold disabled:opacity-50"
                                                                         title="Finalizar Tarea"
                                                                     >
                                                                         <CheckCircle className="w-4 h-4" />
-                                                                        <span className="hidden xl:inline">Finalizar</span>
+                                                                        <span className="hidden xl:inline">{finishingTaskId === tarea.id ? 'Finalizando...' : 'Finalizar'}</span>
                                                                     </button>
                                                                 </>
                                                             )}
@@ -1119,7 +1331,8 @@ export const Orders = () => {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                            );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>

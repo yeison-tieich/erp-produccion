@@ -104,11 +104,23 @@ export const getQualityDashboard = async (req: Request, res: Response) => {
         const devoluciones = await prisma.reclamoCliente.count({ where: { es_devolucion: true } });
 
         // 6. Costo de No Calidad
-        const ncs = await prisma.noConformidad.findMany({ select: { costo_estimado: true } });
-        const reclamos = await prisma.reclamoCliente.findMany({ select: { costo_estimado: true } });
-        const costoNC = ncs.reduce((sum, item) => sum + Number(item.costo_estimado || 0), 0);
-        const costoReclamos = reclamos.reduce((sum, item) => sum + Number(item.costo_estimado || 0), 0);
-        const costoNoCalidadTotal = costoNC + costoReclamos;
+        const costosNoCalidad = await prisma.costoNoCalidad.groupBy({
+            by: ['categoria'],
+            _sum: { monto: true }
+        });
+        const costosNoCalidadPorCategoria = {
+            FALLA_INTERNA: 0,
+            FALLA_EXTERNA: 0,
+            PREVENCION_EVALUACION: 0
+        };
+        costosNoCalidad.forEach(item => {
+            costosNoCalidadPorCategoria[item.categoria] = Number(item._sum.monto || 0);
+        });
+        const costoNoCalidadTotal = Object.values(costosNoCalidadPorCategoria).reduce((sum, cost) => sum + cost, 0);
+        const costosNoCalidadTendencia = await prisma.costoNoCalidad.findMany({
+            select: { categoria: true, monto: true, fecha: true },
+            orderBy: { fecha: 'asc' }
+        });
 
         // 7. Gráficos & Distribuciones
         // Defectos por Máquina
@@ -202,7 +214,13 @@ export const getQualityDashboard = async (req: Request, res: Response) => {
                 totalReclamos,
                 reclamosAbiertos,
                 devoluciones,
-                costoNoCalidadTotal
+                costoNoCalidadTotal,
+                costosNoCalidadPorCategoria,
+                costosNoCalidadTendencia: costosNoCalidadTendencia.map(cost => ({
+                    categoria: cost.categoria,
+                    monto: Number(cost.monto),
+                    fecha: cost.fecha
+                }))
             },
             graficos: {
                 defectosPorMaquina,
@@ -430,6 +448,30 @@ export const createInspection = async (req: Request, res: Response) => {
         } = req.body;
 
         const user = (req as any).user;
+        const measurementsInput = Array.isArray(mediciones) ? mediciones : [];
+        const measurementInstrumentIds = measurementsInput.map((measurement: any) => Number(measurement.instrumento_id));
+        if (measurementsInput.some((measurement: any) => !Number.isInteger(Number(measurement.instrumento_id)) || Number(measurement.instrumento_id) <= 0)) {
+            return res.status(400).json({ error: 'Cada medición debe usar un instrumento registrado y calibrado vigente.' });
+        }
+        const uniqueInstrumentIds = [...new Set(measurementInstrumentIds)];
+        const measurementInstruments = uniqueInstrumentIds.length
+            ? await prisma.instrumentoMedicion.findMany({ where: { id: { in: uniqueInstrumentIds } } })
+            : [];
+        const instrumentById = new Map(measurementInstruments.map(instrument => [instrument.id, instrument]));
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        for (const instrumentId of uniqueInstrumentIds) {
+            const instrument = instrumentById.get(instrumentId);
+            if (!instrument || !instrument.activo) {
+                return res.status(400).json({ error: `El instrumento ${instrumentId} no existe o está inactivo.` });
+            }
+            if (instrument.fecha_vencimiento.toISOString().slice(0, 10) < todayUtc) {
+                return res.status(400).json({
+                    error: `No se puede registrar la medición: calibración vencida para ${instrument.codigo}.`,
+                    instrumento_id: instrument.id,
+                    fecha_vencimiento: instrument.fecha_vencimiento
+                });
+            }
+        }
 
         const result = await prisma.$transaction(async (tx) => {
             const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -489,6 +531,7 @@ export const createInspection = async (req: Request, res: Response) => {
                     tolerancia_min: m.tolerancia_min !== undefined && m.tolerancia_min !== '' ? Number(m.tolerancia_min) : null,
                     tolerancia_max: m.tolerancia_max !== undefined && m.tolerancia_max !== '' ? Number(m.tolerancia_max) : null,
                     instrumento: m.instrumento || null,
+                    instrumento_id: Number(m.instrumento_id),
                     valores_medidos: JSON.stringify(parsedValues),
                     promedio,
                     minimo,
@@ -1021,10 +1064,14 @@ export const updateCorrectiveAction = async (req: Request, res: Response) => {
 // ----------------------------------------------------
 export const getQualityRisks = async (req: Request, res: Response) => {
     try {
-        const { proceso, tipo, estado } = req.query;
+        const { proceso, tipo, categoria_matriz, estado } = req.query;
         const where: any = {};
         if (proceso) where.proceso = String(proceso);
-        if (tipo) where.tipo = String(tipo);
+        if (categoria_matriz || tipo) {
+            const category = String(categoria_matriz || tipo).toUpperCase();
+            if (!['RIESGO', 'OPORTUNIDAD'].includes(category)) return res.status(400).json({ error: 'Categoría de matriz inválida.' });
+            where.categoria_matriz = category;
+        }
         if (estado) where.estado = String(estado);
 
         const risks = await prisma.riesgoCalidad.findMany({
@@ -1036,7 +1083,13 @@ export const getQualityRisks = async (req: Request, res: Response) => {
                 proveedor: { select: { id: true, nombre: true } },
                 cliente: { select: { id: true, nombre: true } }
             },
-            orderBy: { nivel_riesgo: 'desc' }
+            orderBy: { updatedAt: 'desc' }
+        });
+        risks.sort((a, b) => {
+            if (a.categoria_matriz !== b.categoria_matriz) return a.categoria_matriz === 'RIESGO' ? -1 : 1;
+            return a.categoria_matriz === 'OPORTUNIDAD'
+                ? b.nivel_oportunidad - a.nivel_oportunidad
+                : b.nivel_riesgo - a.nivel_riesgo;
         });
         res.json(risks);
     } catch (error: any) {
@@ -1048,12 +1101,15 @@ export const createQualityRisk = async (req: Request, res: Response) => {
     try {
         const {
             tipo,
+            categoria_matriz,
             proceso,
             descripcion,
             causa,
             consecuencia,
             probabilidad,
             impacto,
+            viabilidad,
+            beneficio,
             estrategia,
             plan_accion,
             personal_id,
@@ -1063,9 +1119,18 @@ export const createQualityRisk = async (req: Request, res: Response) => {
             cliente_id
         } = req.body;
 
+        const rawCategory = String(categoria_matriz || tipo || 'RIESGO').toUpperCase();
+        if (rawCategory !== 'RIESGO' && rawCategory !== 'OPORTUNIDAD') return res.status(400).json({ error: 'Categoría de matriz inválida.' });
+        const category = rawCategory;
         const p = Number(probabilidad || 1);
         const i = Number(impacto || 1);
-        const nivel = p * i;
+        const viability = Number(viabilidad || 1);
+        const benefit = Number(beneficio || 1);
+        if ([p, i, viability, benefit].some(score => !Number.isInteger(score) || score < 1 || score > 5)) {
+            return res.status(400).json({ error: 'Las puntuaciones deben estar entre 1 y 5.' });
+        }
+        const riskLevel = category === 'RIESGO' ? p * i : 1;
+        const opportunityLevel = category === 'OPORTUNIDAD' ? viability * benefit : 1;
 
         const count = await prisma.riesgoCalidad.count();
         const codigo = `RIE-${(count + 1).toString().padStart(3, '0')}`;
@@ -1073,14 +1138,18 @@ export const createQualityRisk = async (req: Request, res: Response) => {
         const risk = await prisma.riesgoCalidad.create({
             data: {
                 codigo,
-                tipo: tipo || 'RIESGO',
+                tipo: category,
+                categoria_matriz: category,
                 proceso: proceso || 'Producción',
                 descripcion,
                 causa: causa || null,
                 consecuencia: consecuencia || null,
                 probabilidad: p,
                 impacto: i,
-                nivel_riesgo: nivel,
+                nivel_riesgo: riskLevel,
+                viabilidad: viability,
+                beneficio: benefit,
+                nivel_oportunidad: opportunityLevel,
                 estrategia: estrategia || null,
                 plan_accion: plan_accion || null,
                 personal_id: personal_id ? Number(personal_id) : null,
@@ -1105,21 +1174,30 @@ export const updateQualityRisk = async (req: Request, res: Response) => {
             descripcion,
             causa,
             consecuencia,
+            categoria_matriz,
             probabilidad,
             impacto,
+            viabilidad,
+            beneficio,
             estrategia,
             plan_accion,
             personal_id,
             estado
         } = req.body;
 
-        const p = probabilidad !== undefined ? Number(probabilidad) : undefined;
-        const i = impacto !== undefined ? Number(impacto) : undefined;
         const current = await prisma.riesgoCalidad.findUnique({ where: { id: Number(id) } });
         if (!current) return res.status(404).json({ error: 'Riesgo no encontrado' });
 
-        const finalP = p !== undefined ? p : current.probabilidad;
-        const finalI = i !== undefined ? i : current.impacto;
+        const rawCategory = String(categoria_matriz || current.categoria_matriz).toUpperCase();
+        if (rawCategory !== 'RIESGO' && rawCategory !== 'OPORTUNIDAD') return res.status(400).json({ error: 'Categoría de matriz inválida.' });
+        const category = rawCategory;
+        const finalP = probabilidad !== undefined ? Number(probabilidad) : current.probabilidad;
+        const finalI = impacto !== undefined ? Number(impacto) : current.impacto;
+        const finalViability = viabilidad !== undefined ? Number(viabilidad) : current.viabilidad;
+        const finalBenefit = beneficio !== undefined ? Number(beneficio) : current.beneficio;
+        if ([finalP, finalI, finalViability, finalBenefit].some(score => !Number.isInteger(score) || score < 1 || score > 5)) {
+            return res.status(400).json({ error: 'Las puntuaciones deben estar entre 1 y 5.' });
+        }
 
         const updated = await prisma.riesgoCalidad.update({
             where: { id: Number(id) },
@@ -1128,9 +1206,14 @@ export const updateQualityRisk = async (req: Request, res: Response) => {
                 descripcion,
                 causa,
                 consecuencia,
+                tipo: category,
+                categoria_matriz: category,
                 probabilidad: finalP,
                 impacto: finalI,
-                nivel_riesgo: finalP * finalI,
+                nivel_riesgo: category === 'RIESGO' ? finalP * finalI : 1,
+                viabilidad: finalViability,
+                beneficio: finalBenefit,
+                nivel_oportunidad: category === 'OPORTUNIDAD' ? finalViability * finalBenefit : 1,
                 estrategia,
                 plan_accion,
                 personal_id: personal_id !== undefined ? (personal_id ? Number(personal_id) : null) : undefined,
@@ -1251,7 +1334,14 @@ export const getSuppliers = async (req: Request, res: Response) => {
 
 export const createSupplier = async (req: Request, res: Response) => {
     try {
-        const { nombre, contacto, telefono, email, direccion, calificacion } = req.body;
+        const {
+            nombre, contacto, telefono, email, direccion, calificacion,
+            riesgo_climatico_score, evaluacion_ambiental, plan_continuidad_climatica, certificaciones_sostenibilidad
+        } = req.body;
+        if (riesgo_climatico_score !== undefined && riesgo_climatico_score !== '' &&
+            (!Number.isInteger(Number(riesgo_climatico_score)) || Number(riesgo_climatico_score) < 1 || Number(riesgo_climatico_score) > 5)) {
+            return res.status(400).json({ error: 'La puntuación de riesgo climático debe estar entre 1 y 5.' });
+        }
         const supplier = await prisma.proveedor.create({
             data: {
                 nombre,
@@ -1259,7 +1349,11 @@ export const createSupplier = async (req: Request, res: Response) => {
                 telefono,
                 email,
                 direccion,
-                calificacion: calificacion !== undefined && calificacion !== '' ? Number(calificacion) : 100
+                calificacion: calificacion !== undefined && calificacion !== '' ? Number(calificacion) : 100,
+                riesgo_climatico_score: riesgo_climatico_score !== undefined && riesgo_climatico_score !== '' ? Number(riesgo_climatico_score) : null,
+                evaluacion_ambiental: evaluacion_ambiental || null,
+                plan_continuidad_climatica: plan_continuidad_climatica || null,
+                certificaciones_sostenibilidad: certificaciones_sostenibilidad || null
             }
         });
         res.status(201).json(supplier);
@@ -1271,7 +1365,14 @@ export const createSupplier = async (req: Request, res: Response) => {
 export const updateSupplier = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { nombre, contacto, telefono, email, direccion, activo, calificacion } = req.body;
+        const {
+            nombre, contacto, telefono, email, direccion, activo, calificacion,
+            riesgo_climatico_score, evaluacion_ambiental, plan_continuidad_climatica, certificaciones_sostenibilidad
+        } = req.body;
+        if (riesgo_climatico_score !== undefined && riesgo_climatico_score !== null && riesgo_climatico_score !== '' &&
+            (!Number.isInteger(Number(riesgo_climatico_score)) || Number(riesgo_climatico_score) < 1 || Number(riesgo_climatico_score) > 5)) {
+            return res.status(400).json({ error: 'La puntuación de riesgo climático debe estar entre 1 y 5.' });
+        }
         const supplier = await prisma.proveedor.update({
             where: { id: Number(id) },
             data: {
@@ -1281,7 +1382,13 @@ export const updateSupplier = async (req: Request, res: Response) => {
                 email,
                 direccion,
                 activo: activo !== undefined ? Boolean(activo) : undefined,
-                calificacion: calificacion !== undefined && calificacion !== '' ? Number(calificacion) : undefined
+                calificacion: calificacion !== undefined && calificacion !== '' ? Number(calificacion) : undefined,
+                riesgo_climatico_score: riesgo_climatico_score !== undefined
+                    ? (riesgo_climatico_score === '' || riesgo_climatico_score === null ? null : Number(riesgo_climatico_score))
+                    : undefined,
+                evaluacion_ambiental: evaluacion_ambiental !== undefined ? evaluacion_ambiental : undefined,
+                plan_continuidad_climatica: plan_continuidad_climatica !== undefined ? plan_continuidad_climatica : undefined,
+                certificaciones_sostenibilidad: certificaciones_sostenibilidad !== undefined ? certificaciones_sostenibilidad : undefined
             }
         });
         res.json(supplier);
@@ -1309,6 +1416,8 @@ export const evaluateSupplier = async (req: Request, res: Response) => {
 
         const tasaAceptacion = totalRecepciones > 0 ? (aprobadas / totalRecepciones) * 100 : 100;
         const penalizacionNC = totalNC * 5;
+        const supplier = await prisma.proveedor.findUnique({ where: { id: Number(id) } });
+        if (!supplier) return res.status(404).json({ error: 'Proveedor no encontrado.' });
         const indiceCalculado = Math.max(0, Math.min(100, Math.round(tasaAceptacion - penalizacionNC)));
 
         let estadoAprobacion = 'APROBADO';
@@ -1324,6 +1433,12 @@ export const evaluateSupplier = async (req: Request, res: Response) => {
                 total_rechazos: totalRechazos,
                 total_nc: totalNC,
                 estado_aprobacion: estadoAprobacion,
+                observaciones: JSON.stringify({
+                    riesgo_climatico_score: supplier.riesgo_climatico_score,
+                    evaluacion_ambiental: supplier.evaluacion_ambiental,
+                    plan_continuidad_climatica: supplier.plan_continuidad_climatica,
+                    certificaciones_sostenibilidad: supplier.certificaciones_sostenibilidad
+                }),
                 evaluador: (req as any).user?.nombre || 'Sistema'
             }
         });
@@ -1676,5 +1791,361 @@ export const getQualityAuditLogs = async (req: Request, res: Response) => {
         res.json(logs);
     } catch (error: any) {
         res.status(500).json({ error: 'Error al obtener registros de auditoría', details: error.message });
+    }
+};
+
+const ETHICS_POLICY_VERSION = '2026.1';
+const MANAGEMENT_ROLES = ['Administrador', 'Gerencia', 'Calidad', 'Supervisor'];
+
+export const getMeasurementInstruments = async (_req: Request, res: Response) => {
+    try {
+        const instruments = await prisma.instrumentoMedicion.findMany({ orderBy: [{ tipo: 'asc' }, { codigo: 'asc' }] });
+        res.json(instruments);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al consultar instrumentos de medición', details: error.message });
+    }
+};
+
+export const createMeasurementInstrument = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        if (!MANAGEMENT_ROLES.includes(user?.rol)) return res.sendStatus(403);
+        const { codigo, nombre, tipo, fabricante, numero_serie, certificado_calibracion, fecha_ultima_calibracion, fecha_vencimiento, observaciones } = req.body;
+        const expiration = new Date(fecha_vencimiento);
+        if (!codigo?.trim() || !nombre?.trim() || !tipo?.trim() || Number.isNaN(expiration.getTime())) {
+            return res.status(400).json({ error: 'Código, nombre, tipo y vencimiento válido son obligatorios.' });
+        }
+        const instrument = await prisma.instrumentoMedicion.create({
+            data: {
+                codigo: codigo.trim(),
+                nombre: nombre.trim(),
+                tipo: tipo.trim(),
+                fabricante: fabricante || null,
+                numero_serie: numero_serie || null,
+                certificado_calibracion: certificado_calibracion || null,
+                fecha_ultima_calibracion: fecha_ultima_calibracion ? new Date(fecha_ultima_calibracion) : null,
+                fecha_vencimiento: expiration,
+                observaciones: observaciones || null
+            }
+        });
+        await prisma.auditoriaRegistroCalidad.create({
+            data: {
+                usuario_id: Number(user.id),
+                usuario_nombre: user.nombre || 'Calidad',
+                accion: 'REGISTRO_INSTRUMENTO_MEDICION',
+                modulo: 'CALIDAD',
+                entidad: 'InstrumentoMedicion',
+                entidad_id: instrument.id,
+                valor_nuevo: JSON.stringify({ codigo: instrument.codigo, fecha_vencimiento: instrument.fecha_vencimiento }),
+                ip_origen: req.ip
+            }
+        });
+        res.status(201).json(instrument);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al registrar instrumento', details: error.message });
+    }
+};
+
+export const getEngineeringChanges = async (_req: Request, res: Response) => {
+    try {
+        const changes = await prisma.controlCambioIngenieria.findMany({
+            include: {
+                producto: { select: { id: true, sku_producto: true, nombre_producto: true } },
+                listaMateriales: { select: { id: true } },
+                rutaFabricacion: { select: { id: true, no_operacion: true, nombre_operacion: true } },
+                usuarioSolicitante: { select: { id: true, nombre: true } },
+                usuarioAprobador: { select: { id: true, nombre: true } }
+            },
+            orderBy: { fecha_solicitud: 'desc' }
+        });
+        res.json(changes);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al consultar cambios de ingeniería', details: error.message });
+    }
+};
+
+export const createEngineeringChange = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { producto_id, lista_materiales_id, ruta_fabricacion_id, motivo, descripcion_cambio } = req.body;
+        const productId = Number(producto_id);
+        if (!Number.isInteger(productId) || productId < 1 || !motivo?.trim() || !descripcion_cambio?.trim() ||
+            (!lista_materiales_id && !ruta_fabricacion_id)) {
+            return res.status(400).json({ error: 'Producto, motivo, detalle y al menos un objeto BOM o ruta son obligatorios.' });
+        }
+        const count = await prisma.controlCambioIngenieria.count();
+        const codigo = `ECO-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+        const change = await prisma.$transaction(async tx => {
+            const created = await tx.controlCambioIngenieria.create({
+                data: {
+                    codigo,
+                    producto_id: productId,
+                    lista_materiales_id: lista_materiales_id ? Number(lista_materiales_id) : null,
+                    ruta_fabricacion_id: ruta_fabricacion_id ? Number(ruta_fabricacion_id) : null,
+                    motivo: motivo.trim(),
+                    descripcion_cambio: descripcion_cambio.trim(),
+                    usuario_solicitante_id: Number(user.id)
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Usuario',
+                    accion: 'SOLICITUD_CAMBIO_INGENIERIA',
+                    modulo: 'CALIDAD',
+                    entidad: 'ControlCambioIngenieria',
+                    entidad_id: created.id,
+                    valor_nuevo: JSON.stringify({ codigo, estado: 'PENDIENTE', producto_id: productId }),
+                    ip_origen: req.ip
+                }
+            });
+            return created;
+        });
+        res.status(201).json(change);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al solicitar cambio de ingeniería', details: error.message });
+    }
+};
+
+export const decideEngineeringChange = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        if (!MANAGEMENT_ROLES.includes(user?.rol)) return res.sendStatus(403);
+        const id = Number(req.params.id);
+        const { estado, comentarios_aprobacion } = req.body;
+        if (!['APROBADO', 'RECHAZADO'].includes(estado)) return res.status(400).json({ error: 'La decisión debe ser APROBADO o RECHAZADO.' });
+        const result = await prisma.$transaction(async tx => {
+            const current = await tx.controlCambioIngenieria.findUnique({ where: { id } });
+            if (!current) throw Object.assign(new Error('Cambio de ingeniería no encontrado.'), { status: 404 });
+            if (current.estado !== 'PENDIENTE') throw Object.assign(new Error('Solo se pueden decidir cambios pendientes.'), { status: 409 });
+            const updated = await tx.controlCambioIngenieria.update({
+                where: { id },
+                data: {
+                    estado,
+                    usuario_aprobador_id: Number(user.id),
+                    fecha_efectiva: estado === 'APROBADO' ? new Date() : null,
+                    comentarios_aprobacion: comentarios_aprobacion || null
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Aprobador',
+                    accion: `CAMBIO_INGENIERIA_${estado}`,
+                    modulo: 'CALIDAD',
+                    entidad: 'ControlCambioIngenieria',
+                    entidad_id: id,
+                    valor_anterior: JSON.stringify({ estado: current.estado }),
+                    valor_nuevo: JSON.stringify({ estado, fecha_efectiva: updated.fecha_efectiva }),
+                    ip_origen: req.ip
+                }
+            });
+            return updated;
+        });
+        res.json(result);
+    } catch (error: any) {
+        res.status(error.status || 500).json({ error: error.message || 'Error al decidir cambio de ingeniería' });
+    }
+};
+
+export const createQualityCost = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        if (!MANAGEMENT_ROLES.includes(user?.rol)) return res.sendStatus(403);
+        const { categoria, descripcion, monto, fecha, origen, numero_referencia, no_conformidad_id, reclamo_id } = req.body;
+        const categories = ['FALLA_INTERNA', 'FALLA_EXTERNA', 'PREVENCION_EVALUACION'];
+        const amount = Number(monto);
+        if (!categories.includes(categoria) || !descripcion?.trim() || !Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Categoría válida, descripción y monto positivo son obligatorios.' });
+        }
+        if (no_conformidad_id && reclamo_id) return res.status(400).json({ error: 'Un costo no puede vincularse simultáneamente a una NC y a un reclamo.' });
+        const costDate = fecha ? new Date(fecha) : new Date();
+        if (Number.isNaN(costDate.getTime())) return res.status(400).json({ error: 'Fecha del costo inválida.' });
+        const cost = await prisma.$transaction(async tx => {
+            const record = await tx.costoNoCalidad.create({
+                data: {
+                    categoria,
+                    descripcion: descripcion.trim(),
+                    monto: amount,
+                    fecha: costDate,
+                    origen: origen || null,
+                    numero_referencia: numero_referencia || null,
+                    no_conformidad_id: no_conformidad_id ? Number(no_conformidad_id) : null,
+                    reclamo_id: reclamo_id ? Number(reclamo_id) : null,
+                    creado_por: user.nombre || String(user.id)
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Usuario',
+                    accion: 'REGISTRO_COSTO_NO_CALIDAD',
+                    modulo: 'FINANZAS',
+                    entidad: 'CostoNoCalidad',
+                    entidad_id: record.id,
+                    valor_nuevo: JSON.stringify({ categoria, monto: amount, descripcion: descripcion.trim() }),
+                    ip_origen: req.ip
+                }
+            });
+            return record;
+        });
+        res.status(201).json(cost);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al registrar costo de no calidad', details: error.message });
+    }
+};
+
+export const getEthicsAcceptance = async (req: Request, res: Response) => {
+    try {
+        const userId = Number((req as any).user?.id);
+        const latest = await prisma.aceptacionEtica.findFirst({
+            where: { usuario_id: userId, version: ETHICS_POLICY_VERSION },
+            orderBy: { aceptado_en: 'desc' }
+        });
+        const validSince = new Date();
+        validSince.setDate(validSince.getDate() - 90);
+        res.json({
+            version: ETHICS_POLICY_VERSION,
+            required: !latest || latest.aceptado_en < validSince,
+            acceptedAt: latest?.aceptado_en || null
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al consultar aceptación ética', details: error.message });
+    }
+};
+
+export const acceptEthicsPolicy = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        if (req.body.version !== ETHICS_POLICY_VERSION || req.body.accepted !== true) {
+            return res.status(400).json({ error: 'Confirma la versión vigente de la política para registrar la aceptación.' });
+        }
+        const result = await prisma.$transaction(async tx => {
+            const acceptance = await tx.aceptacionEtica.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    version: ETHICS_POLICY_VERSION,
+                    ip_origen: req.ip
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Usuario',
+                    accion: 'ACEPTACION_POLITICA_ETICA',
+                    modulo: 'CALIDAD',
+                    entidad: 'AceptacionEtica',
+                    entidad_id: acceptance.id,
+                    valor_nuevo: JSON.stringify({ version: acceptance.version, aceptado_en: acceptance.aceptado_en }),
+                    ip_origen: req.ip
+                }
+            });
+            return acceptance;
+        });
+        res.status(201).json({ version: result.version, required: false, acceptedAt: result.aceptado_en });
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al registrar aceptación ética', details: error.message });
+    }
+};
+
+export const getQualityContext = async (_req: Request, res: Response) => {
+    try {
+        const contextEvaluations = await prisma.evaluacionContextoCalidad.findMany({
+            orderBy: { fecha_revision: 'asc' }
+        });
+        res.json(contextEvaluations);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al consultar evaluaciones de contexto', details: error.message });
+    }
+};
+
+export const createQualityContext = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { factor, origen, cambio_climatico_relevante, impacto_cadena_suministro, impacto_sostenibilidad, respuesta_planificada, responsable, fecha_revision } = req.body;
+        const reviewDate = new Date(fecha_revision);
+        if (!factor?.trim() || !['INTERNO', 'EXTERNO'].includes(origen) ||
+            !impacto_cadena_suministro?.trim() || !impacto_sostenibilidad?.trim() ||
+            !respuesta_planificada?.trim() || !responsable?.trim() || Number.isNaN(reviewDate.getTime())) {
+            return res.status(400).json({ error: 'Completa el factor, origen, impactos, respuesta, responsable y fecha de revisión.' });
+        }
+        const result = await prisma.$transaction(async tx => {
+            const context = await tx.evaluacionContextoCalidad.create({
+                data: {
+                    factor: factor.trim(),
+                    origen,
+                    cambio_climatico_relevante: Boolean(cambio_climatico_relevante),
+                    impacto_cadena_suministro: impacto_cadena_suministro.trim(),
+                    impacto_sostenibilidad: impacto_sostenibilidad.trim(),
+                    respuesta_planificada: respuesta_planificada.trim(),
+                    responsable: responsable.trim(),
+                    fecha_revision: reviewDate,
+                    creado_por: user.nombre || String(user.id)
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Usuario',
+                    accion: 'EVALUACION_CONTEXTO_CALIDAD',
+                    modulo: 'CALIDAD',
+                    entidad: 'EvaluacionContextoCalidad',
+                    entidad_id: context.id,
+                    valor_nuevo: JSON.stringify(context),
+                    ip_origen: req.ip
+                }
+            });
+            return context;
+        });
+        res.status(201).json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al registrar evaluación de contexto', details: error.message });
+    }
+};
+
+export const getLeadershipCommitments = async (_req: Request, res: Response) => {
+    try {
+        const commitments = await prisma.compromisoDireccionCalidad.findMany({
+            include: { usuario: { select: { id: true, nombre: true } } },
+            orderBy: { aprobado_en: 'desc' }
+        });
+        res.json(commitments);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al consultar compromisos de dirección', details: error.message });
+    }
+};
+
+export const createLeadershipCommitment = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        if (!['Administrador', 'Gerencia'].includes(user?.rol)) return res.sendStatus(403);
+        const { version, compromiso, objetivos } = req.body;
+        if (!version?.trim() || !compromiso?.trim()) return res.status(400).json({ error: 'Versión y declaración de compromiso son obligatorias.' });
+        const result = await prisma.$transaction(async tx => {
+            const record = await tx.compromisoDireccionCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    version: version.trim(),
+                    compromiso: compromiso.trim(),
+                    objetivos: objetivos?.trim() || null
+                }
+            });
+            await tx.auditoriaRegistroCalidad.create({
+                data: {
+                    usuario_id: Number(user.id),
+                    usuario_nombre: user.nombre || 'Dirección',
+                    accion: 'COMPROMISO_DIRECCION_CALIDAD',
+                    modulo: 'CALIDAD',
+                    entidad: 'CompromisoDireccionCalidad',
+                    entidad_id: record.id,
+                    valor_nuevo: JSON.stringify({ version: record.version, compromiso: record.compromiso }),
+                    ip_origen: req.ip
+                }
+            });
+            return record;
+        });
+        res.status(201).json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Error al registrar compromiso de dirección', details: error.message });
     }
 };

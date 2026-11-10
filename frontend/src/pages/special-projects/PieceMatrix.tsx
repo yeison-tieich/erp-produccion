@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, Plus, Trash2, Upload, X } from 'lucide-react';
 import { useSpecialProjectsStore } from '../../store/specialProjects.store';
+import { createUUID } from '../../utils/uuid';
 
 type PieceDraft = {
   rowId: string;
@@ -15,7 +16,7 @@ type PieceDraft = {
 };
 
 const createEmptyRow = (): PieceDraft => ({
-  rowId: crypto.randomUUID(),
+  rowId: createUUID(),
   codigo: '',
   nombre: '',
   cantidad: '1',
@@ -88,7 +89,7 @@ const PieceMatrix: React.FC<PieceMatrixProps> = ({ projectId, onClose }) => {
       cantidad: Number(cantidad),
     }));
     const snapshot = JSON.stringify(payload);
-    const nextRequestId = requestSnapshot === snapshot && requestId ? requestId : crypto.randomUUID();
+    const nextRequestId = requestSnapshot === snapshot && requestId ? requestId : createUUID();
     setRequestId(nextRequestId);
     setRequestSnapshot(snapshot);
     setSaving(true);

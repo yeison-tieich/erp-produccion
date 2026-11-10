@@ -2,6 +2,40 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 
+export const createClient = async (req: Request, res: Response) => {
+    try {
+        const { nombre, contacto, direccion, calificacion } = req.body ?? {};
+        const nombreCliente = typeof nombre === 'string' ? nombre.trim() : '';
+
+        if (!nombreCliente) {
+            return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
+        }
+
+        const client = await prisma.cliente.create({
+            data: {
+                nombre: nombreCliente,
+                contacto: typeof contacto === 'string' ? contacto.trim() : null,
+                direccion: typeof direccion === 'string' ? direccion.trim() : null,
+                calificacion: Number.isFinite(Number(calificacion)) ? Number(calificacion) : 0,
+                activo: true,
+            },
+            include: {
+                _count: {
+                    select: { productos: true }
+                }
+            }
+        });
+
+        res.status(201).json(client);
+    } catch (error: any) {
+        console.error(error);
+        if (error?.code === 'P2002') {
+            return res.status(409).json({ error: 'Ya existe un cliente con ese nombre' });
+        }
+        res.status(500).json({ error: 'Error al crear el cliente', details: error.message });
+    }
+};
+
 export const getClients = async (req: Request, res: Response) => {
     try {
         const clients = await prisma.cliente.findMany({

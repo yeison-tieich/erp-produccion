@@ -4,13 +4,22 @@ import {
   Download, Upload, Tag, Calendar, User, ArrowUpRight, Clock, ShieldCheck
 } from 'lucide-react';
 import { qualityService } from '../../services/qualityService';
+import { useAuthStore } from '../../store/auth.store';
 
 export const DocumentsSGCPage: React.FC = () => {
+  const user = useAuthStore(state => state.user);
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [tipoFilter, setTipoFilter] = useState('');
   const [estadoFilter, setEstadoFilter] = useState('');
+  const [ethicsStatus, setEthicsStatus] = useState<{ version: string; required: boolean; acceptedAt: string | null } | null>(null);
+  const [ethicsRead, setEthicsRead] = useState(false);
+  const [ethicsSaving, setEthicsSaving] = useState(false);
+  const [leadershipCommitments, setLeadershipCommitments] = useState<Awaited<ReturnType<typeof qualityService.getLeadershipCommitments>>>([]);
+  const [leadershipSaving, setLeadershipSaving] = useState(false);
+  const [leadershipText, setLeadershipText] = useState('La alta dirección asume la responsabilidad por la eficacia del SGC, integra la calidad en los procesos de negocio, promueve la cultura ética y asegura recursos para objetivos de calidad y mejora continua.');
+  const [leadershipObjectives, setLeadershipObjectives] = useState('');
 
   // Modals
   const [isNewDocModalOpen, setIsNewDocModalOpen] = useState(false);
@@ -43,7 +52,44 @@ export const DocumentsSGCPage: React.FC = () => {
 
   useEffect(() => {
     fetchDocuments();
+    qualityService.getEthicsAcceptance()
+      .then(setEthicsStatus)
+      .catch((error) => console.error('Error fetching ethics policy acceptance:', error));
+    qualityService.getLeadershipCommitments()
+      .then(setLeadershipCommitments)
+      .catch((error) => console.error('Error fetching leadership commitments:', error));
   }, []);
+
+  const handleAcceptEthicsPolicy = async () => {
+    if (!ethicsStatus || !ethicsRead) return;
+    setEthicsSaving(true);
+    try {
+      setEthicsStatus(await qualityService.acceptEthicsPolicy(ethicsStatus.version));
+      setEthicsRead(false);
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'No fue posible registrar la aceptación.');
+    } finally {
+      setEthicsSaving(false);
+    }
+  };
+
+  const handleLeadershipCommitment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLeadershipSaving(true);
+    try {
+      const commitment = await qualityService.createLeadershipCommitment({
+        version: '2026.1',
+        compromiso: leadershipText,
+        objetivos: leadershipObjectives || undefined
+      });
+      setLeadershipCommitments(current => [commitment, ...current]);
+      setLeadershipObjectives('');
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'No fue posible registrar el compromiso de dirección.');
+    } finally {
+      setLeadershipSaving(false);
+    }
+  };
 
   const fetchDocuments = async () => {
     try {
@@ -141,6 +187,65 @@ export const DocumentsSGCPage: React.FC = () => {
           Registrar Documento
         </button>
       </div>
+
+      {ethicsStatus && (
+        <section className={`rounded-2xl border p-5 shadow-sm ${ethicsStatus.required ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/70'}`}>
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div className="max-w-3xl">
+              <h2 className="flex items-center gap-2 font-bold text-slate-900">
+                <ShieldCheck className="h-5 w-5 text-emerald-700" />
+                Compromiso ético y cultura de calidad · Política interna {ethicsStatus.version}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                Toda persona debe comunicar desviaciones, proteger la integridad de los registros y puede detener o escalar una operación cuando identifique un riesgo de calidad, seguridad o conformidad, sin represalias por una alerta de buena fe.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Esta es una política interna de MECAYTRO; su aceptación registrada no constituye certificación ni declaración de conformidad con una edición específica de ISO 9001.
+                {ethicsStatus.acceptedAt && !ethicsStatus.required ? ` Aceptada el ${new Date(ethicsStatus.acceptedAt).toLocaleString()}.` : ' La confirmación se solicita cada 90 días.'}
+              </p>
+            </div>
+            {ethicsStatus.required && (
+              <div className="flex min-w-[260px] flex-col gap-3">
+                <label className="flex items-start gap-2 text-xs font-semibold text-slate-700">
+                  <input type="checkbox" checked={ethicsRead} onChange={event => setEthicsRead(event.target.checked)} className="mt-0.5 accent-emerald-700" />
+                  Confirmo que leí y comprendo estas directrices.
+                </label>
+                <button type="button" disabled={!ethicsRead || ethicsSaving} onClick={() => void handleAcceptEthicsPolicy()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  {ethicsSaving ? 'Registrando...' : 'Registrar aceptación'}
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {user && ['Administrador', 'Gerencia'].includes(user.rol) && (
+        <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-5">
+          <h2 className="flex items-center gap-2 font-bold text-slate-900">
+            <ShieldCheck className="h-5 w-5 text-indigo-700" />
+            Compromiso de la alta dirección · Registro interno 2026.1
+          </h2>
+          <p className="mt-1 text-xs text-slate-600">Declaraciones fechadas y atribuibles que documentan liderazgo y responsabilidad del SGC.</p>
+          {leadershipCommitments[0] && (
+            <div className="mt-3 rounded-xl border border-indigo-100 bg-white/80 p-3 text-xs">
+              <strong>{leadershipCommitments[0].usuario.nombre} · {new Date(leadershipCommitments[0].aprobado_en).toLocaleString()}</strong>
+              <p className="mt-1 text-slate-700">{leadershipCommitments[0].compromiso}</p>
+              {leadershipCommitments[0].objetivos && <p className="mt-1 text-slate-600">Objetivos: {leadershipCommitments[0].objetivos}</p>}
+            </div>
+          )}
+          <form onSubmit={handleLeadershipCommitment} className="mt-3 grid gap-3">
+            <label className="text-xs font-semibold text-slate-700">Declaración de compromiso
+              <textarea required value={leadershipText} onChange={event => setLeadershipText(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2" />
+            </label>
+            <label className="text-xs font-semibold text-slate-700">Objetivos / recursos prioritarios (opcional)
+              <input value={leadershipObjectives} onChange={event => setLeadershipObjectives(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2" />
+            </label>
+            <button type="submit" disabled={leadershipSaving} className="justify-self-end rounded-lg bg-indigo-700 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-800 disabled:opacity-50">
+              {leadershipSaving ? 'Registrando...' : 'Registrar compromiso directivo'}
+            </button>
+          </form>
+        </section>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

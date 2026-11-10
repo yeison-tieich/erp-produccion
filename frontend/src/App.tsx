@@ -2,7 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
+import { GlobalMasterDashboard } from './pages/GlobalMasterDashboard';
 import { Inventory } from './pages/Inventory';
 import { Orders } from './pages/Orders';
 import { Tasks } from './pages/Tasks';
@@ -33,7 +33,16 @@ import { RisksAndAuditsPage } from './pages/quality/RisksAndAuditsPage';
 import { DocumentsSGCPage } from './pages/quality/DocumentsSGCPage';
 import { useAuthStore } from './store/auth.store';
 import { databaseService } from './services/databaseService';
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { getModulePermission } from './utils/permissions';
+
+const ModuleAccess = ({ module, children }: { module: string; children: ReactNode }) => {
+    const user = useAuthStore(state => state.user);
+    const hasModuleAccess = getModulePermission(user?.permisos, module);
+    return user?.rol !== 'Administrador' && hasModuleAccess === false
+        ? <Navigate to="/" replace />
+        : children;
+};
 
 
 function App() {
@@ -59,24 +68,26 @@ function App() {
 
                 <Route element={<DashboardLayout />}>
                     {/* Admin & Supervisor Routes */}
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/inventory" element={<Inventory />} />
+                    <Route path="/" element={<GlobalMasterDashboard />} />
+                    <Route path="/inventory" element={<ModuleAccess module="Inventario"><Inventory /></ModuleAccess>} />
+                    <Route path="/products/dashboard" element={<Products />} />
                     <Route path="/products" element={<Products />} />
-                    <Route path="/clients" element={<Clients />} />
-                    <Route path="/orders" element={<Orders />} />
-                    <Route path="/personal" element={<PersonalPage />} />
-                    <Route path="/maintenance" element={<MaintenancePage />} />
-                    <Route path="/special-projects" element={<SpecialProjects />} />
-                    <Route path="/special-projects/dashboard" element={<SpecialProjectsDashboard />} />
-                    <Route path="/special-projects/kanban" element={<SpecialProjectsKanban />} />
-                    <Route path="/special-projects/new" element={<ProjectForm />} />
-                    <Route path="/special-projects/:id" element={<SpecialProjectDetails />} />
+                    <Route path="/clients" element={<ModuleAccess module="Clientes"><Clients /></ModuleAccess>} />
+                    <Route path="/orders/live-plant" element={<ModuleAccess module="Órdenes"><Orders /></ModuleAccess>} />
+                    <Route path="/orders" element={<ModuleAccess module="Órdenes"><Orders /></ModuleAccess>} />
+                    <Route path="/personal" element={<ModuleAccess module="Personal"><PersonalPage /></ModuleAccess>} />
+                    <Route path="/maintenance" element={<ModuleAccess module="Mantenimiento"><MaintenancePage /></ModuleAccess>} />
+                    <Route path="/special-projects" element={<ModuleAccess module="Proyectos Especiales"><SpecialProjects /></ModuleAccess>} />
+                    <Route path="/special-projects/dashboard" element={<ModuleAccess module="Proyectos Especiales"><SpecialProjectsDashboard /></ModuleAccess>} />
+                    <Route path="/special-projects/kanban" element={<ModuleAccess module="Proyectos Especiales"><SpecialProjectsKanban /></ModuleAccess>} />
+                    <Route path="/special-projects/new" element={<ModuleAccess module="Proyectos Especiales"><ProjectForm /></ModuleAccess>} />
+                    <Route path="/special-projects/:id" element={<ModuleAccess module="Proyectos Especiales"><SpecialProjectDetails /></ModuleAccess>} />
                     <Route path="/settings" element={<SettingsPage />} />
-                    <Route path="/tools" element={<ToolsInventory />} />
-                    <Route path="/loans" element={<ToolLoans />} />
-                    <Route path="/pedidos" element={<Pedidos />} />
+                    <Route path="/tools" element={<ModuleAccess module="Herramientas"><ToolsInventory /></ModuleAccess>} />
+                    <Route path="/loans" element={<ModuleAccess module="Herramientas"><ToolLoans /></ModuleAccess>} />
+                    <Route path="/pedidos" element={<ModuleAccess module="Pedidos"><Pedidos /></ModuleAccess>} />
                     <Route path="/users" element={<UsersPage />} />
-                    <Route path="/finances" element={<FinancesPage />} />
+                    <Route path="/finances" element={<ModuleAccess module="Finanzas"><FinancesPage /></ModuleAccess>} />
 
                     {/* Quality Module Routes (ISO 9001:2015) */}
                     <Route path="/quality" element={<QualityDashboard />} />
@@ -91,7 +102,7 @@ function App() {
                     <Route path="/quality/documents" element={<DocumentsSGCPage />} />
 
                     {/* Operator Routes */}
-                    <Route path="/tasks" element={<Tasks />} />
+                    <Route path="/tasks" element={<ModuleAccess module="Tareas"><Tasks /></ModuleAccess>} />
 
 
                     {/* Fallback */}

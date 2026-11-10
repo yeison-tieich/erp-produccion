@@ -116,3 +116,321 @@ body.dark::before {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 200ms;
 }
+
+/* ==========================================
+   MOBILE / APK OPTIMIZATIONS
+   ========================================== */
+
+/* Prevent text inflation on mobile */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-size: 14px;
+}
+
+/* Safe area for notch phones */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Remove tap highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Allow text selection only in inputs */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Smooth scrolling in overflow containers */
+.overflow-y-auto,
+.overflow-auto,
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure horizontal scroll containers (tables, tabs, etc.) allow vertical mouse wheel scrolling to propagate to the page */
+.overflow-x-auto,
+[style*="overflow-x: auto"],
+[style*="overflowX: auto"],
+.inventory-desktop-table,
+table {
+  overscroll-behavior-y: auto !important;
+}
+
+/* Minimum tap target size (44px) for better accessibility */
+button, a, [role="button"] {
+  min-height: 36px;
+  min-width: 36px;
+}
+
+/* Modals go full-screen on mobile */
+@media (max-width: 768px) {
+  .fixed.inset-0 > div {
+    border-radius: 0 !important;
+    max-height: 100dvh !important;
+    height: 100dvh !important;
+  }
+
+  /* Smaller headings on mobile */
+  h1 { font-size: 1.5rem !important; }
+  h2 { font-size: 1.25rem !important; }
+  h3 { font-size: 1.1rem !important; }
+
+  /* Reduce hero section padding */
+  .p-10 { padding: 1.25rem !important; }
+  .p-8  { padding: 1rem !important; }
+
+  /* Header safe area padding */
+  header {
+    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+  }
+}
+
+/* Raw-material inventory responsive tables and dashboard */
+.inventory-dashboard-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+}
+
+.inventory-mobile-cards {
+  display: none;
+}
+
+.inventory-mobile-card,
+.inventory-mobile-empty {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 12px;
+  padding: 14px;
+  color: #334155;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
+}
+
+.inventory-mobile-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.inventory-mobile-card-heading h3 {
+  margin: 3px 0 0;
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.inventory-mobile-eyebrow {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
+}
+
+.inventory-mobile-material-name {
+  margin: 12px 0 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.inventory-status-badge {
+  display: inline-block;
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.inventory-status-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.inventory-status-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.inventory-mobile-data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  margin-top: 14px;
+}
+
+.inventory-mobile-data-grid > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.inventory-mobile-data-grid > div > span:first-child {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.inventory-mobile-data-grid strong {
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.inventory-mobile-data-grid .inventory-mobile-full-row {
+  grid-column: 1 / -1;
+}
+
+.inventory-mobile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.inventory-mobile-actions button,
+.inventory-mobile-primary-action {
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inventory-mobile-actions button:nth-child(2) {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.inventory-mobile-actions button:nth-child(3) {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.inventory-mobile-primary-action {
+  width: 100%;
+  margin-top: 14px;
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.inventory-mobile-primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.inventory-mobile-empty {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.inventory-mobile-count {
+  padding: 4px 2px 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.inventory-value-warning { color: #b45309 !important; }
+.inventory-value-success { color: #15803d !important; }
+.inventory-value-danger { color: #b91c1c !important; }
+
+@media (max-width: 768px) {
+  .inventory-page {
+    padding: 16px !important;
+  }
+
+  .inventory-dashboard-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-chart-card,
+  .inventory-recent-movements {
+    min-width: 0;
+    padding: 16px !important;
+  }
+
+  .inventory-chart-card > div:first-child {
+    align-items: flex-start !important;
+  }
+
+  .inventory-chart-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .inventory-chart-card input {
+    flex: 1 1 140px;
+    min-width: 0;
+    width: auto !important;
+    box-sizing: border-box;
+  }
+
+  .inventory-chart-card select {
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+
+  .inventory-dark-surface {
+    background: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.08) !important;
+  }
+
+  .inventory-desktop-table {
+    display: none !important;
+  }
+
+  .inventory-mobile-cards {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 380px) {
+  .inventory-mobile-data-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-mobile-data-grid .inventory-mobile-full-row {
+    grid-column: auto;
+  }
+
+  .inventory-mobile-actions button {
+    gap: 3px;
+    font-size: 11px;
+  }
+}

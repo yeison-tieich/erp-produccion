@@ -2,6 +2,129 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 
+export const getGlobalDashboardSummary = async (_req: Request, res: Response) => {
+    try {
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const [
+            orderStatusRows,
+            delayedOrders,
+            criticalMaterials,
+            incompleteProducts,
+            openNonConformances,
+            heldOrders,
+            recentQualityTotals,
+            machines
+        ] = await Promise.all([
+            prisma.ordenTrabajo.findMany({
+                select: { estado_ot: true }
+            }),
+            prisma.ordenTrabajo.findMany({
+                where: {
+                    fecha_entrega_req: { lt: now },
+                    estado_ot: { notIn: ['Completada', 'Cancelada', 'Anulada'] }
+                },
+                select: {
+                    id: true,
+                    numero_ot: true,
+                    cliente: true,
+                    estado_ot: true,
+                    fecha_entrega_req: true,
+                    producto: { select: { nombre_producto: true } }
+                },
+                orderBy: { fecha_entrega_req: 'asc' },
+                take: 5
+            }),
+            prisma.materiaPrima.findMany({
+                where: {
+                    stock_actual: { lte: prisma.materiaPrima.fields.punto_reorden }
+                },
+                select: {
+                    id: true,
+                    sku_mp: true,
+                    nombre_mp: true,
+                    stock_actual: true,
+                    punto_reorden: true,
+                    unidad_medida_stock: true
+                },
+                orderBy: { stock_actual: 'asc' },
+                take: 5
+            }),
+            prisma.producto.count({
+                where: {
+                    activo: true,
+                    OR: [
+                        { plano_pdf_url: null },
+                        { listaMateriales: { none: {} } },
+                        { rutas: { none: { activo: true } } }
+                    ]
+                }
+            }),
+            prisma.noConformidad.count({
+                where: { estado: { notIn: ['CERRADA', 'ANULADA'] } }
+            }),
+            prisma.ordenTrabajo.count({
+                where: { estado_calidad: 'Retenida' }
+            }),
+            prisma.tareaProduccion.aggregate({
+                where: {
+                    estado_tarea: 'Completada',
+                    fecha_hora_fin: { gte: thirtyDaysAgo }
+                },
+                _sum: { cantidad_buena: true, cantidad_mala: true }
+            }),
+            prisma.maquina.findMany({
+                select: { id: true, codigo: true, nombre: true, estado: true, area_produccion: true },
+                orderBy: { codigo: 'asc' },
+                take: 8
+            })
+        ]);
+
+        const ordersByStatus = orderStatusRows.reduce<Record<string, number>>((counts, order) => {
+            counts[order.estado_ot] = (counts[order.estado_ot] || 0) + 1;
+            return counts;
+        }, {});
+        const goodParts = recentQualityTotals._sum.cantidad_buena || 0;
+        const defectiveParts = recentQualityTotals._sum.cantidad_mala || 0;
+        const totalParts = goodParts + defectiveParts;
+
+        res.json({
+            asOf: now.toISOString(),
+            production: {
+                activeOrders: ordersByStatus['En Progreso'] || 0,
+                pendingOrders: ordersByStatus.Pendiente || 0,
+                ordersByStatus: Object.entries(ordersByStatus).map(([status, count]) => ({ status, count })),
+                delayedOrders: delayedOrders.map(order => ({
+                    ...order,
+                    fecha_entrega_req: order.fecha_entrega_req?.toISOString() || null
+                }))
+            },
+            inventory: {
+                criticalCount: await prisma.materiaPrima.count({
+                    where: { stock_actual: { lte: prisma.materiaPrima.fields.punto_reorden } }
+                }),
+                criticalItems: criticalMaterials.map(material => ({
+                    ...material,
+                    stock_actual: Number(material.stock_actual),
+                    punto_reorden: Number(material.punto_reorden)
+                }))
+            },
+            products: { incompleteCount: incompleteProducts },
+            quality: {
+                openNonConformances,
+                heldOrders,
+                ppm: totalParts > 0 ? Math.round((defectiveParts / totalParts) * 1_000_000) : 0
+            },
+            machines
+        });
+    } catch (error) {
+        console.error('Error fetching global dashboard summary:', error);
+        res.status(500).json({ error: 'Error fetching global dashboard summary' });
+    }
+};
+
 export const getDashboardStats = async (req: Request, res: Response) => {
     try {
         const { area } = req.query;

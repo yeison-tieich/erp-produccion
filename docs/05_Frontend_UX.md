@@ -1,37 +1,108 @@
-# 05. Frontend y Experiencia de Usuario (UX) - Control MT
+# 05. Frontend y UX - Control MT
 
-El frontend está diseñado para ser rápido, intuitivo y visualmente premium, facilitando el uso tanto en computadoras de oficina como en dispositivos móviles en el taller.
+El frontend de Control MT se basa en una arquitectura moderna y responsiva para operar tanto en escritorio como en tablet o entorno móvil. La estructura prioriza rapidez, claridad visual y consistencia operativa en un ambiente industrial.
 
-## Diseño Visual
-- **Framework**: Tailwind CSS (Utilizando la versión 4.0 para mayor rendimiento).
-- **Estética**: Estilo "Glassmorphism" con fondos desenfocados, bordes redondeados (`rounded-2xl`, `rounded-3xl`) y sombras sutiles.
-- **Paleta de Colores**: Basada en tonos "Brand" (asociados a la identidad corporativa de MT) y colores de estado claros para prioridad y progreso.
-- **Responsividad**: Diseño móvil-primero para que los operarios puedan reportar tareas desde tablets o celulares.
+## Stack frontend
 
-## Gestión de Estado y Datos
-Se utiliza **Zustand** para la gestión de estados volátiles y la UI, apoyado por una capa de **Repositorios** para la persistencia.
+- React 18
+- Vite
+- TypeScript
+- Tailwind CSS 4
+- Zustand
+- Axios
+- Recharts
+- jsPDF / XLSX
+- Capacitor para soporte móvil nativo
 
-- **Patrón Repository**: Actúa como fuente única de verdad. Decide si los datos provienen de la API (Web) o de SQLite (Mobile).
-- **SyncQueue Service**: Gestiona la cola de operaciones pendientes de sincronización.
-- **Auth Store**: Gestiona el usuario actual y la persistencia del token JWT.
-- **Orders Store**: Centraliza la lógica de OTs, integrando con el repositorio de órdenes.
-- **Inventory Store**: Gestiona el stock, delegando el guardado al `materiaPrimaRepository`.
+## Objetivos de UX
 
-### Interceptores de Axios
-- El sistema incluye un interceptor que inyecta automáticamente el `Bearer Token` en cada petición saliente, garantizando que el usuario esté siempre autenticado ante el servidor.
+- reducir pasos para tareas repetitivas
+- priorizar información crítica por módulo
+- mantener navegación clara entre inventario, producción y proyectos
+- facilitar trabajo desde computadores y tablets del taller
+- ofrecer carga de archivos e inspecciones con pocas interrupciones
 
-## Patrones de Navegación
-- **Dashboard Layout**: Una barra lateral persistente (Sidebar) con acceso rápido a todos los módulos.
-- **Modales de Acción**: Las ediciones y creaciones rápidas se realizan a través de modales (`fixed inset-0`) para mantener el contexto del usuario.
-- **Filtros Dinámicos**: Búsqueda instantánea en tablas y filtrado por estados (Activo, Pendiente, Terminado).
+## Estructura de la capa frontend
 
-## Sincronización y Estado Offline
-Para mejorar la transparencia hacia el usuario, el sistema incluye:
-- **Sync Indicator**: Un componente visual en el encabezado que muestra el estado de la sincronización (Sincronizado, Pendiente, Sincronizando).
-- **Offline Badges**: Etiquetas visuales que indican si un registro fue creado localmente y aún no ha sido subido al servidor.
-- **Optimistic UI**: Las operaciones locales se reflejan instantáneamente en la interfaz antes de que se complete la sincronización con el servidor.
+### 1. Vistas y páginas
+Se organiza por módulos funcionales:
 
-## Retroalimentación al Usuario
-- **Skeleton Loaders**: Estados de carga visual para evitar saltos de contenido.
-- **Confirmaciones Premium**: Diálogos de confirmación estilizados para acciones críticas.
-- **Indicadores de Progreso Real-Time**: Barras de progreso visuales para OTs y fases de proyectos especiales.
+- dashboard
+- inventario
+- productos
+- OT
+- proyectos
+- personal
+- mantenimiento
+- calidad
+- herramientas
+- finanzas
+
+### 2. Componentes reutilizables
+Los componentes visuales permiten mantener consistencia en:
+
+- tablas y listados
+- filtros y búsqueda
+- paneles de detalle
+- formularios
+- modales de edición
+- indicadores de estado
+- upload y preview de archivos
+
+### 3. Estado global con Zustand
+Zustand centraliza la información volátil y compartida, evitando lógica duplicada entre vistas.
+
+### 4. Repositorios y acceso a datos
+La capa de repositorio abstrae la fuente de datos para que la UI no necesite saber si se conecta a API web o a un backend local/capacitor.
+
+## Patrones de interfaz
+
+### Layout principal
+El panel central usa estructura tipo dashboard con navegación lateral y contenido principal claro. Esto ayuda a operar el ERP sin perder contexto de cada módulo.
+
+### Formularios operativos
+Los formularios se diseñan para trabajo rápido y trazabilidad:
+
+- campos críticos visibles
+- validación clara
+- carga de archivos integrada
+- resúmenes de operación según el caso
+
+### Tablas y filtros
+La UI favorece tablas con filtros, ordenamiento y acciones rápidas, especialmente en los módulos de inventario y producción.
+
+## Modo móvil y trabajo offline
+
+Cuando la app se ejecuta en un dispositivo nativo con Capacitor, se habilita un flujo híbrido:
+
+- trabajo local sin conexión
+- almacenamiento temporal en SQLite
+- cola de sincronización de cambios
+- envío posterior al backend cuando exista conectividad
+
+Esto permite al personal del taller registrar eventos sin interrumpir la operación.
+
+## Feedback y estado visual
+
+El frontend informa al usuario en tiempo real con:
+
+- indicadores de carga
+- toasts o mensajes de confirmación
+- estados de sincronización
+- alertas de inventario o mantenimiento
+- evidencias y archivos visuales asociados a registros
+
+## Recomendaciones UX
+
+- priorizar tareas de una sola pantalla para operación rápida
+- evitar exceso de modales en flujos complejos
+- mantener consistencia en nomenclatura y estados
+- usar colores y etiquetas legibles para operarios de planta
+- reforzar trazabilidad del trabajo en producción
+
+## Referencias
+
+- `frontend/src/`
+- `frontend/package.json`
+- `backend/src/server.ts`
+- `docs/06_Operations_Guide.md`

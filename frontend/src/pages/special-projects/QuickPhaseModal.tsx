@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { FaseProyecto } from '../../types';
 import { useSpecialProjectsStore } from '../../store/specialProjects.store';
+import { createUUID } from '../../utils/uuid';
 
 interface QuickPhaseModalProps {
   projectId: number;
@@ -40,7 +41,7 @@ const QuickPhaseModal: React.FC<QuickPhaseModalProps> = ({ projectId, phase, onC
     const snapshot = JSON.stringify({ pieceId, quantities, note });
     const requestId = lastSubmission.snapshot === snapshot && lastSubmission.requestId
       ? lastSubmission.requestId
-      : crypto.randomUUID();
+      : createUUID();
     setLastSubmission({ requestId, snapshot });
     try {
       await addPieceRecord(pieceId, {
